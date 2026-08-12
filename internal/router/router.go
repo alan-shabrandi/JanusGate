@@ -83,8 +83,8 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 			return fmt.Errorf("failed to register route %s: %w", route.ID, err)
 		}
 
-		log.Printf("Loaded Route [%s]: Path=%s -> Target=%s (Type: %s, StripPrefix: %t)",
-			route.ID, route.Path, targetURL, route.MatchType, route.StripPrefix)
+		log.Printf("Loaded & Bound Route [%s]: Path=%s -> Target=%s (Methods: %v, MatchType: %s)",
+			route.ID, route.Path, targetURL, route.Methods, route.MatchType)
 	}
 	return nil
 }
@@ -95,12 +95,19 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	path := req.URL.Path
 	var matchedHandler http.Handler
+	methodMatched := false
+	pathMatched := false
+
 	longestPrefix := -1
 
 	for _, entry := range r.routes {
 		if entry.config.MatchType == "exact" && entry.config.Path == path {
-			matchedHandler = entry.handler
-			break
+			pathMatched = true
+			if isMethodAllowed(entry.config.Methods, req.Method) {
+				matchedHandler = entry.handler
+				methodMatched = true
+				break
+			}
 		}
 	}
 
@@ -109,8 +116,12 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			if entry.config.MatchType == "prefix" || entry.config.MatchType == "" {
 				prefix := entry.config.Path
 				if strings.HasPrefix(path, prefix) && len(prefix) > longestPrefix {
-					longestPrefix = len(prefix)
-					matchedHandler = entry.handler
+					pathMatched = true
+					if isMethodAllowed(entry.config.Methods, req.Method) {
+						longestPrefix = len(prefix)
+						matchedHandler = entry.handler
+						methodMatched = true
+					}
 				}
 			}
 		}
@@ -121,6 +132,17 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if pathMatched && !methodMatched {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":   "Method Not Allowed",
+			"message": fmt.Sprintf("HTTP method %s is not allowed for this route", req.Method),
+			"code":    405,
+		})
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -128,4 +150,16 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		"message": "No matching route found for the requested path",
 		"code":    404,
 	})
+}
+
+func isMethodAllowed(allowedMethods []string, reqMethod string) bool {
+	if len(allowedMethods) == 0 {
+		return true
+	}
+	for _, m := range allowedMethods {
+		if strings.EqualFold(m, reqMethod) {
+			return true
+		}
+	}
+	return false
 }
