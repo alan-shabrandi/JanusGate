@@ -1,46 +1,42 @@
-# 🚀 JanusGate
+# JanusGate
 
-> **High-Performance, Cloud-Native API Gateway & Reverse Proxy — built with Go**
+> High-performance, cloud-native API gateway and reverse proxy written in Go.
 
-JanusGate is a lightweight, distributed, and cloud-native API Gateway and Reverse Proxy written entirely in Go. It is designed to sit in front of your microservices and handle routing, security, traffic control, resilience, and observability with extremely low overhead.
+JanusGate is a lightweight, distributed API gateway and reverse proxy written in Go. It sits in front of microservices and handles routing, security, traffic control, resilience, and observability.
 
----
+## Features
 
-## ✨ Features
+| Area                   | Capabilities                                                                                    |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| **Routing & Proxying** | Exact-match and prefix routing, path stripping, dynamic configuration, zero-downtime hot reload |
+| **Load Balancing**     | Round-Robin, Weighted Round-Robin, Least Connections, IP Hash                                   |
+| **Rate Limiting**      | Redis-backed Token Bucket for distributed traffic control and abuse prevention                  |
+| **Security**           | Centralized JWT validation and API Key management                                               |
+| **Resilience**         | Circuit Breaker, exponential-backoff retries, active/passive health checks                      |
+| **Observability**      | Prometheus metrics and OpenTelemetry distributed tracing                                        |
+| **Cloud Native**       | Stateless gateway architecture, container-friendly deployment, horizontal scalability           |
 
-| Area                      | Capabilities                                                                                    |
-| ------------------------- | ----------------------------------------------------------------------------------------------- |
-| ⚡ **Routing & Proxying** | Exact-match and prefix routing, path stripping, dynamic configuration, zero-downtime hot reload |
-| ⚖️ **Load Balancing**     | Round-Robin, Weighted Round-Robin, Least Connections, IP Hash                                   |
-| 🛡️ **Rate Limiting**      | Redis-backed Token Bucket for distributed traffic control and abuse prevention                  |
-| 🔐 **Security**           | Centralized JWT validation and API Key management                                               |
-| ❤️ **Resilience**         | Circuit Breaker, exponential-backoff retries, active/passive health checks                      |
-| 📊 **Observability**      | Prometheus metrics and OpenTelemetry distributed tracing                                        |
-| ☁️ **Cloud Native**       | Stateless gateway architecture, container-friendly deployment, horizontal scalability           |
-
----
-
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-    Client["🌐 Clients"] --> Gateway["🚀 JanusGate"]
+    Client["Clients"] --> Gateway["JanusGate"]
 
-    Gateway --> Router["⚡ Dynamic Router"]
-    Router --> Auth["🔐 Auth"]
-    Router --> Rate["🛡️ Rate Limiter"]
-    Router --> LB["⚖️ Load Balancer"]
-    LB --> CB["❤️ Circuit Breaker"]
+    Gateway --> Router["Dynamic Router"]
+    Router --> Auth["Auth"]
+    Router --> Rate["Rate Limiter"]
+    Router --> LB["Load Balancer"]
+    LB --> CB["Circuit Breaker"]
 
-    CB --> S1["🧩 User Service"]
-    CB --> S2["🧩 Order Service"]
-    CB --> S3["🧩 Other Services"]
+    CB --> S1["User Service"]
+    CB --> S2["Order Service"]
+    CB --> S3["Other Services"]
 
-    Rate -.-> Redis[("🗄️ Redis")]
-    Gateway -.-> Metrics["📊 Prometheus"]
-    Gateway -.-> Trace["🔭 OpenTelemetry"]
+    Rate -.-> Redis[("Redis")]
+    Gateway -.-> Metrics["Prometheus"]
+    Gateway -.-> Trace["OpenTelemetry"]
 
-    Metrics --> Grafana["📈 Grafana"]
+    Metrics --> Grafana["Grafana"]
 ```
 
 ### Request Flow
@@ -50,11 +46,11 @@ Client
   │
   ▼
 ┌───────────────────────────────┐
-│        JanusGate        │
+│            JanusGate          │
 │                               │
 │  Routing → Auth → Rate Limit  │
-│          → Load Balance       │
-│          → Resilience         │
+│           → Load Balance      │
+│           → Resilience        │
 └───────────────┬───────────────┘
                 │
         ┌───────┼────────┐
@@ -64,11 +60,9 @@ Client
         └──────────► Redis
 ```
 
-> 💡 The architecture is designed to keep the gateway lightweight while allowing horizontal scaling and centralized traffic control.
+The architecture keeps the gateway lightweight while supporting horizontal scaling and centralized traffic control.
 
----
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -81,8 +75,8 @@ Make sure you have:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/[Your-Username]/[Your-Repo].git
-cd [Your-Repo]
+git clone https://github.com/alan-shabrandi/JanusGate
+cd JanusGate
 ```
 
 ### 2. Start the full local environment
@@ -93,11 +87,11 @@ docker compose up -d
 
 This starts:
 
-- 🚀 JanusGate
-- 🗄️ Redis
-- 📊 Prometheus
-- 📈 Grafana
-- 🧩 3 mock upstream services
+- JanusGate
+- Redis
+- Prometheus
+- Grafana
+- Three mock upstream services
 
 ### 3. Check the environment
 
@@ -111,21 +105,17 @@ docker compose ps
 docker compose down
 ```
 
----
+## Local Endpoints
 
-## 🔗 Local Endpoints
-
-| Service        | URL                   | Purpose                    |
-| -------------- | --------------------- | -------------------------- |
-| 🚀 API Gateway | http://localhost:8080 | Main gateway endpoint      |
-| 📊 Prometheus  | http://localhost:9090 | Metrics & monitoring       |
-| 📈 Grafana     | http://localhost:3000 | Dashboards & visualization |
+| Service     | URL                     | Purpose                      |
+| ----------- | ----------------------- | ---------------------------- |
+| API Gateway | `http://localhost:8080` | Main gateway endpoint        |
+| Prometheus  | `http://localhost:9090` | Metrics and monitoring       |
+| Grafana     | `http://localhost:3000` | Dashboards and visualization |
 
 > **Note:** Update these ports if your `docker-compose.yaml` exposes different values.
 
----
-
-## ⚙️ Configuration
+## Configuration
 
 Gateway behavior is defined through `config.yaml`.
 
@@ -170,20 +160,18 @@ Least Connections
 IP Hash
 ```
 
----
+## Performance
 
-## 📈 Performance
-
-Performance is a first-class concern.
+Performance is an important part of the design.
 
 The following figures are **example benchmark results** and should be replaced with measurements from your own environment before publishing them as official project claims.
 
-| Metric              |    Example Result |
-| ------------------- | ----------------: |
-| ⚡ Throughput       |   ~15,000 req/sec |
-| ⏱️ Average Latency  |            < 2 ms |
-| 🎯 P99 Latency      |            < 5 ms |
-| 🧠 Memory Footprint | ~25 MB under load |
+| Metric           |    Example Result |
+| ---------------- | ----------------: |
+| Throughput       |   ~15,000 req/sec |
+| Average Latency  |            < 2 ms |
+| P99 Latency      |            < 5 ms |
+| Memory Footprint | ~25 MB under load |
 
 ### Benchmark Environment
 
@@ -200,11 +188,9 @@ Run benchmarks locally with:
 make benchmark
 ```
 
-> ⚠️ Benchmark results depend heavily on CPU, network, workload, upstream latency, concurrency, and configuration. Always reproduce results in a controlled environment.
+> Benchmark results depend heavily on CPU, network, workload, upstream latency, concurrency, and configuration. Always reproduce results in a controlled environment.
 
----
-
-## 📁 Project Structure
+## Project Structure
 
 ```text
 .
@@ -228,9 +214,7 @@ make benchmark
 └── README.md                 # Project documentation
 ```
 
----
-
-## 🛠️ Development
+## Development
 
 ### Requirements
 
@@ -257,9 +241,7 @@ make lint
 go run ./cmd/gateway
 ```
 
----
-
-## 🧪 Testing
+## Testing
 
 Run the complete test suite:
 
@@ -282,9 +264,7 @@ go test ./... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 ```
 
----
-
-## 📊 Observability
+## Observability
 
 JanusGate provides native observability integrations.
 
@@ -312,16 +292,14 @@ Client
   │
   ▼
 Gateway ───────────────► OTel Collector
-  │                         │
-  ▼                         ▼
+  │                           │
+  ▼                           ▼
 Upstream Services        Trace Backend
 ```
 
----
+## Resilience
 
-## 🛡️ Resilience
-
-The gateway includes multiple mechanisms for handling unhealthy or overloaded upstream services:
+The gateway includes multiple mechanisms for handling unhealthy or overloaded upstream services.
 
 ### Circuit Breaker
 
@@ -335,11 +313,9 @@ Failed requests can be retried using exponential backoff.
 
 Active and passive health checks help identify unavailable upstream instances and keep traffic away from unhealthy targets.
 
-> ⚠️ Retry policies should be configured carefully for non-idempotent operations such as payments or state-changing requests.
+> Retry policies should be configured carefully for non-idempotent operations such as payments or state-changing requests.
 
----
-
-## 🔐 Security
+## Security
 
 JanusGate centralizes common API security concerns at the gateway layer.
 
@@ -355,11 +331,9 @@ JanusGate centralizes common API security concerns at the gateway layer.
 - Circuit breaking
 - Upstream health management
 
-> 🔒 Authentication, authorization, TLS termination, secret management, and network policies should be configured according to your deployment's security requirements.
+> Authentication, authorization, TLS termination, secret management, and network policies should be configured according to your deployment's security requirements.
 
----
-
-## 🐳 Docker
+## Docker
 
 The project uses a multi-stage Docker build to produce a small production image.
 
@@ -375,17 +349,15 @@ Run it:
 docker run --rm -p 8080:8080 JanusGate:latest
 ```
 
-For local development with dependencies and observability services, prefer:
+For local development with dependencies and observability services, use:
 
 ```bash
 docker compose up -d
 ```
 
----
+## Configuration Hot Reload
 
-## 🧩 Configuration Hot Reload
-
-One of the gateway's core capabilities is configuration hot reload.
+JanusGate supports configuration hot reload.
 
 ```text
 config.yaml
@@ -401,16 +373,14 @@ config.yaml
 └───────┬───────┘
         │
         ▼
-   Active Routes
+    Active Routes
 ```
 
 Changes to routing and gateway behavior can be applied without restarting the gateway process.
 
----
+## Contributing
 
-## 🤝 Contributing
-
-Contributions are welcome!
+Contributions are welcome.
 
 ### Development workflow
 
@@ -431,9 +401,7 @@ make lint
 
 Please keep pull requests focused, tested, and easy to review.
 
----
-
-## 🗺️ Roadmap
+## Roadmap
 
 Potential future improvements:
 
@@ -447,9 +415,7 @@ Potential future improvements:
 - [ ] Gateway-level caching
 - [ ] More detailed dashboards and alerts
 
----
-
-## 📚 Documentation
+## Documentation
 
 Additional documentation can live under:
 
@@ -464,31 +430,27 @@ docs/
 
 Architecture diagrams and operational guides should be kept close to the implementation and updated alongside major changes.
 
----
-
-## 📄 License
+## License
 
 This project is licensed under the **MIT License**.
 
 See the [`LICENSE`](LICENSE) file for the complete license text.
 
----
-
-## ⭐ Support the Project
+## Support the Project
 
 If you find JanusGate useful:
 
-- ⭐ Star the repository
-- 🐛 Report bugs
-- 💡 Open feature requests
-- 🤝 Contribute improvements
-- 📖 Improve the documentation
+- Star the repository
+- Report bugs
+- Open feature requests
+- Contribute improvements
+- Improve the documentation
 
 ---
 
 <div align="center">
 
-**Built with ❤️ and Go**
+**Built with Go**
 
 [Documentation](docs/) · [Issues](../../issues) · [Pull Requests](../../pulls)
 
