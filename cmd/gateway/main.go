@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"janusgate/internal/config"
+	"janusgate/internal/middleware"
 	"janusgate/internal/router"
 	"janusgate/internal/server"
 )
@@ -35,6 +36,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	mwChain := middleware.New(
+		middleware.RequestID,
+		middleware.Logger,
+	)
+
+	handlerWithMiddleware := mwChain.Then(rt)
+
 	config.WatchChanges(v, func(newCfg *config.Config) {
 		slog.Info("Configuration file changed, reloading routes...")
 		if err := rt.LoadRoutes(newCfg.Routes); err != nil {
@@ -44,7 +52,7 @@ func main() {
 		}
 	})
 
-	srv := server.NewServer(&cfg.Server, rt)
+	srv := server.NewServer(&cfg.Server, handlerWithMiddleware)
 
 	go func() {
 		slog.Info("Starting JanusGate server", "port", cfg.Server.Port)
