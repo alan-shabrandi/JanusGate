@@ -48,6 +48,15 @@ func NewProxy(targetURL string) (*httputil.ReverseProxy, error) {
 		req.Header.Set("X-Forwarded-Proto", scheme)
 	}
 
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		resp.Header.Del("Server")
+		resp.Header.Del("X-Powered-By")
+
+		resp.Header.Set("Via", "JanusGate")
+
+		return nil
+	}
+
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		log.Printf("[Proxy Error] failed to proxy request to %s: %v", targetURL, err)
 
