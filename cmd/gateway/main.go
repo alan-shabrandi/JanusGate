@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -22,21 +21,13 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	targetURL := "https://httpbin.org"
-	reverseProxy, err := proxy.NewProxy(targetURL)
+	offlineTarget := "http://localhost:9999"
+	reverseProxy, err := proxy.NewProxy(offlineTarget)
 	if err != nil {
-		log.Fatalf("Failed to create reverse proxy: %v", err)
+		log.Fatalf("Failed to create proxy: %v", err)
 	}
 
-	mux.Handle("/users", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("--> Proxying request [%s %s] to %s\n", r.Method, r.URL.Path, targetURL)
-		reverseProxy.ServeHTTP(w, r)
-	}))
-
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
+	mux.Handle("/test-down", reverseProxy)
 
 	srv := server.NewServer(&cfg.Server, mux)
 	srv.Start()
@@ -45,7 +36,5 @@ func main() {
 	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	if err := srv.Shutdown(10 * time.Second); err != nil {
-		log.Fatalf("Graceful shutdown failed: %v", err)
-	}
+	_ = srv.Shutdown(10 * time.Second)
 }

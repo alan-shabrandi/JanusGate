@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -8,6 +9,12 @@ import (
 	"net/http/httputil"
 	"net/url"
 )
+
+type ErrorResponse struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+	Code    int    `json:"code"`
+}
 
 func NewProxy(targetURL string) (*httputil.ReverseProxy, error) {
 	parsedURL, err := url.Parse(targetURL)
@@ -51,18 +58,23 @@ func NewProxy(targetURL string) (*httputil.ReverseProxy, error) {
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		resp.Header.Del("Server")
 		resp.Header.Del("X-Powered-By")
-
 		resp.Header.Set("Via", "JanusGate")
-
 		return nil
 	}
 
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		log.Printf("[Proxy Error] failed to proxy request to %s: %v", targetURL, err)
+		log.Printf("[Proxy Error] Target: %s | Client: %s | Error: %v", targetURL, r.RemoteAddr, err)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte(`{"error": "Bad Gateway", "message": "Upstream server is unreachable"}`))
+
+		errResp := ErrorResponse{
+			Error:   "Bad Gateway",
+			Message: "The upstream server is unreachable or offline.",
+			Code:    http.StatusBadGateway,
+		}
+
+		_ = json.NewEncoder(w).Encode(errResp)
 	}
 
 	return proxy, nil
