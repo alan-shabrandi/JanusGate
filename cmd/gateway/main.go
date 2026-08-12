@@ -1,7 +1,11 @@
 package main
 
 import (
-	"log"
+	"context"
+	"errors"
+	"flag"
+	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,22 +17,56 @@ import (
 )
 
 func main() {
-	cfg, err := config.LoadConfig("config.yaml")
+	configPath := flag.String("config", "config.yaml", "Path to configuration file")
+	flag.Parse()
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
+	cfg, v, err := config.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		slog.Error("Failed to load config", "error", err, "path", *configPath)
+		os.Exit(1)
 	}
 
 	rt := router.NewRouter()
 	if err := rt.LoadRoutes(cfg.Routes); err != nil {
-		log.Fatalf("Failed to load routes into router: %v", err)
+		slog.Error("Failed to load routes into router", "error", err)
+		os.Exit(1)
 	}
 
+	config.WatchChanges(v, func(newCfg *config.Config) {
+		slog.Info("Configuration file changed, reloading routes...")
+		if err := rt.LoadRoutes(newCfg.Routes); err != nil {
+			slog.Error("Failed to hot-reload routes", "error", err)
+		} else {
+			slog.Info("Routes hot-reloaded successfully!")
+		}
+	})
+
 	srv := server.NewServer(&cfg.Server, rt)
-	srv.Start()
+
+	go func() {
+		slog.Info("Starting JanusGate server", "port", cfg.Server.Port)
+		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("Server failed to start", "error", err)
+			os.Exit(1)
+		}
+	}()
 
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
 
-	_ = srv.Shutdown(10 * time.Second)
+	slog.Info("Shutting down server gracefully...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("Server forced to shutdown", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("Server exited successfully")
 }

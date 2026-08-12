@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -28,7 +28,6 @@ type ErrorResponse struct {
 }
 
 type Router interface {
-	AddRoute(route config.RouteConfig, handler http.Handler) error
 	LoadRoutes(routes []config.RouteConfig) error
 	http.Handler
 }
@@ -49,34 +48,25 @@ func NewRouter() Router {
 	}
 }
 
-func (r *memoryRouter) AddRoute(route config.RouteConfig, handler http.Handler) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if route.Path == "" {
-		return ErrInvalidPath
-	}
-
-	if route.MatchType == "" {
-		route.MatchType = "prefix"
-	}
-
-	r.routes = append(r.routes, routeEntry{
-		config:  route,
-		handler: handler,
-	})
-
-	return nil
-}
-
 func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
+	newRoutes := make([]routeEntry, 0, len(routes))
+
 	for _, route := range routes {
 		if len(route.Upstreams) == 0 {
-			log.Printf("Warning: Route [%s] has no upstreams configured, skipping...", route.ID)
+			slog.Warn("Route has no upstreams configured, skipping...", "route_id", route.ID)
 			continue
 		}
 
+		if route.PathPrefix == "" {
+			return fmt.Errorf("route %s has empty path_prefix", route.ID)
+		}
+
+		if route.MatchType == "" {
+			route.MatchType = "prefix"
+		}
+
 		targetURL := route.Upstreams[0].URL
+
 		revProxy, err := proxy.NewProxy(targetURL)
 		if err != nil {
 			return fmt.Errorf("failed to create proxy for route %s: %w", route.ID, err)
@@ -85,15 +75,21 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 		var handler http.Handler = revProxy
 
 		if route.StripPrefix {
-			handler = proxy.StripPrefix(route.Path, revProxy)
+			handler = proxy.StripPrefix(route.PathPrefix, revProxy)
 		}
 
-		if err := r.AddRoute(route, handler); err != nil {
-			return fmt.Errorf("failed to register route %s: %w", route.ID, err)
-		}
+		newRoutes = append(newRoutes, routeEntry{
+			config:  route,
+			handler: handler,
+		})
 
-		log.Printf("Loaded Route [%s]: Path=%s -> Target=%s", route.ID, route.Path, targetURL)
+		slog.Info("Loaded Route", "id", route.ID, "path", route.PathPrefix, "target", targetURL)
 	}
+
+	r.mu.Lock()
+	r.routes = newRoutes
+	r.mu.Unlock()
+
 	return nil
 }
 
@@ -108,7 +104,7 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	longestPrefix := -1
 
 	for _, entry := range r.routes {
-		if entry.config.MatchType == "exact" && entry.config.Path == path {
+		if entry.config.MatchType == "exact" && entry.config.PathPrefix == path {
 			pathMatched = true
 			if isMethodAllowed(entry.config.Methods, req.Method) {
 				matchedHandler = entry.handler
@@ -120,8 +116,8 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	if matchedHandler == nil {
 		for _, entry := range r.routes {
-			if entry.config.MatchType == "prefix" || entry.config.MatchType == "" {
-				prefix := entry.config.Path
+			if entry.config.MatchType == "prefix" {
+				prefix := entry.config.PathPrefix
 				if strings.HasPrefix(path, prefix) && len(prefix) > longestPrefix {
 					pathMatched = true
 					if isMethodAllowed(entry.config.Methods, req.Method) {

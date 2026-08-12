@@ -6,19 +6,28 @@ server:
 
 routes:
   - id: "exact-health-route"
-    path: "/ping"
+    path_prefix: "/ping"
     match_type: "exact"
     upstreams:
       - id: "user-service-1"
         url: "http://localhost:8081"
+        weight: 1
 
   - id: "user-service-route"
-    path: "/users"
+    path_prefix: "/users"
     methods:
       - "GET"
       - "POST"
     match_type: "prefix"
     strip_prefix: true
+    # اضافه شدن تنظیمات پیشرفته سیستم
+    load_balancer: "weighted_round_robin"
+    rate_limit:
+      enabled: true
+      requests_per_second: 100
+    circuit_breaker:
+      enabled: true
+      max_requests: 5
     upstreams:
       - id: "user-service-1"
         url: "http://localhost:8081"
@@ -28,20 +37,23 @@ routes:
         weight: 1
 
   - id: "order-service-route"
-    path: "/orders"
+    path_prefix: "/orders"
     methods:
       - "GET"
       - "PUT"
+    match_type: "prefix"
     strip_prefix: false
+    load_balancer: "round_robin"
     upstreams:
       - id: "order-service-1"
         url: "http://localhost:8083"
         weight: 1
 
   - id: "user-service-v1"
-    path: "/api/v1/users"
+    path_prefix: "/api/v1/users"
     match_type: "prefix"
     strip_prefix: true
     upstreams:
       - id: "user-service-1"
         url: "http://localhost:8081"
+        weight: 1

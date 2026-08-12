@@ -3,18 +3,33 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type ErrorResponse struct {
 	Error   string `json:"error"`
 	Message string `json:"message"`
 	Code    int    `json:"code"`
+}
+
+var optimizedTransport = &http.Transport{
+	Proxy: http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext,
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          1000,
+	MaxIdleConnsPerHost:   100,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
 }
 
 func NewProxy(targetURL string) (*httputil.ReverseProxy, error) {
@@ -25,10 +40,14 @@ func NewProxy(targetURL string) (*httputil.ReverseProxy, error) {
 
 	proxy := httputil.NewSingleHostReverseProxy(parsedURL)
 
+	proxy.Transport = optimizedTransport
+
 	originalDirector := proxy.Director
 
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
+
+		req.Host = parsedURL.Host
 
 		clientIP, _, err := net.SplitHostPort(req.RemoteAddr)
 		if err != nil {
@@ -36,12 +55,6 @@ func NewProxy(targetURL string) (*httputil.ReverseProxy, error) {
 		}
 
 		req.Header.Set("X-Real-IP", clientIP)
-
-		if prior := req.Header.Get("X-Forwarded-For"); prior != "" {
-			req.Header.Set("X-Forwarded-For", prior+", "+clientIP)
-		} else {
-			req.Header.Set("X-Forwarded-For", clientIP)
-		}
 
 		if req.Host != "" {
 			req.Header.Set("X-Forwarded-Host", req.Host)
@@ -64,7 +77,7 @@ func NewProxy(targetURL string) (*httputil.ReverseProxy, error) {
 	}
 
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		log.Printf("[Proxy Error] Target: %s | Client: %s | Error: %v", targetURL, r.RemoteAddr, err)
+		slog.Error("Proxy Error", "target", targetURL, "client", r.RemoteAddr, "error", err)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
@@ -95,7 +108,8 @@ func StripPrefix(prefix string, next http.Handler) http.Handler {
 		}
 
 		r.URL.Path = p
-		r.URL.RawPath = p
+
+		r.URL.RawPath = ""
 
 		next.ServeHTTP(w, r)
 	})

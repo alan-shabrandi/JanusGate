@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -19,34 +19,32 @@ func NewServer(cfg *config.ServerConfig, handler http.Handler) *Server {
 
 	return &Server{
 		httpServer: &http.Server{
-			Addr:         addr,
-			Handler:      handler,
-			ReadTimeout:  cfg.ReadTimeout,
-			WriteTimeout: cfg.WriteTimeout,
-			IdleTimeout:  cfg.IdleTimeout,
+			Addr:              addr,
+			Handler:           handler,
+			ReadTimeout:       cfg.ReadTimeout,
+			ReadHeaderTimeout: 3 * time.Second,
+			WriteTimeout:      cfg.WriteTimeout,
+			IdleTimeout:       cfg.IdleTimeout,
 		},
 	}
 }
 
-func (s *Server) Start() {
-	go func() {
-		log.Printf("🚀 JanusGate HTTP Server listening on http://localhost%s\n", s.httpServer.Addr)
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server HTTP ListenAndServe error: %v", err)
-		}
-	}()
+func (s *Server) Start() error {
+	slog.Info("🚀 JanusGate HTTP Server listening", "addr", s.httpServer.Addr)
+
+	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
-func (s *Server) Shutdown(timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	log.Println("Stopping HTTP server gracefully... (waiting for active requests to finish)")
+func (s *Server) Shutdown(ctx context.Context) error {
+	slog.Info("Stopping HTTP server gracefully... (waiting for active requests to finish)")
 
 	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return fmt.Errorf("server forced to shutdown: %w", err)
+		return fmt.Errorf("server shutdown failed: %w", err)
 	}
 
-	log.Println("HTTP server stopped cleanly.")
+	slog.Info("HTTP server stopped cleanly.")
 	return nil
 }
