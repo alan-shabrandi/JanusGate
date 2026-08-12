@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 )
 
 func main() {
+	// ۱. بارگذاری کانفیگ
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -21,13 +23,40 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	offlineTarget := "http://localhost:9999"
-	reverseProxy, err := proxy.NewProxy(offlineTarget)
-	if err != nil {
-		log.Fatalf("Failed to create proxy: %v", err)
+	// ۲. اتصال پویا مسیرها به پروکسی‌ها
+	for _, route := range cfg.Routes {
+		if len(route.Upstreams) == 0 {
+			log.Printf("Warning: Route %s has no upstreams configured, skipping...", route.ID)
+			continue
+		}
+
+		// استفاده از اولین upstream (منطق لودبالانسینگ در روزهای آینده اضافه خواهد شد)
+		targetURL := route.Upstreams[0].URL
+		revProxy, err := proxy.NewProxy(targetURL)
+		if err != nil {
+			log.Fatalf("Failed to create proxy for route %s: %v", route.ID, err)
+		}
+
+		var handler http.Handler = revProxy
+
+		// اعمال StripPrefix در صورت فعال بودن در کانفیگ
+		if route.StripPrefix {
+			handler = http.StripPrefix(route.Path, revProxy)
+		}
+
+		pattern := route.Path
+		if !strings.HasSuffix(pattern, "/") {
+			pattern += "/"
+		}
+
+		mux.Handle(pattern, handler)
+		log.Printf("Mapped Route [%s]: %s -> %s (StripPrefix: %t)", route.ID, route.Path, targetURL, route.StripPrefix)
 	}
 
-	mux.Handle("/test-down", reverseProxy)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("JanusGate is Healthy"))
+	})
 
 	srv := server.NewServer(&cfg.Server, mux)
 	srv.Start()
