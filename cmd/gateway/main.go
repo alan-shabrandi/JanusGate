@@ -34,15 +34,17 @@ func main() {
 		}
 
 		var handler http.Handler = revProxy
+
 		if route.StripPrefix {
-			handler = http.StripPrefix(route.Path, revProxy)
+			handler = proxy.StripPrefix(route.Path, revProxy)
 		}
 
 		if err := rt.AddRoute(route, handler); err != nil {
 			log.Fatalf("Failed to register route %s: %v", route.ID, err)
 		}
 
-		log.Printf("Registered Route [%s]: %s -> %s", route.ID, route.Path, targetURL)
+		log.Printf("Registered Route [%s]: %s -> %s (StripPrefix: %t)",
+			route.ID, route.Path, targetURL, route.StripPrefix)
 	}
 
 	srv := server.NewServer(&cfg.Server, rt)

@@ -11,6 +11,7 @@ routes:
     upstreams:
       - id: "user-service-1"
         url: "http://localhost:8081"
+
   - id: "user-service-route"
     path: "/users"
     methods:
@@ -36,3 +37,11 @@ routes:
       - id: "order-service-1"
         url: "http://localhost:8083"
         weight: 1
+
+  - id: "user-service-v1"
+    path: "/api/v1/users"
+    match_type: "prefix"
+    strip_prefix: true
+    upstreams:
+      - id: "user-service-1"
+        url: "http://localhost:8081"

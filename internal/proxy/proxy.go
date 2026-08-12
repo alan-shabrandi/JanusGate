@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 )
 
 type ErrorResponse struct {
@@ -78,4 +79,24 @@ func NewProxy(targetURL string) (*httputil.ReverseProxy, error) {
 	}
 
 	return proxy, nil
+}
+
+func StripPrefix(prefix string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if prefix == "" || prefix == "/" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		p := strings.TrimPrefix(r.URL.Path, prefix)
+
+		if !strings.HasPrefix(p, "/") {
+			p = "/" + p
+		}
+
+		r.URL.Path = p
+		r.URL.RawPath = p
+
+		next.ServeHTTP(w, r)
+	})
 }
