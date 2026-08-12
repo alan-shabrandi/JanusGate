@@ -1,6 +1,11 @@
 package config
 
-import "time"
+import (
+	"fmt"
+	"time"
+
+	"github.com/spf13/viper"
+)
 
 type Config struct {
 	Server ServerConfig  `mapstructure:"server" json:"server" yaml:"server"`
@@ -25,28 +30,25 @@ type UpstreamNode struct {
 	Weight int    `mapstructure:"weight" json:"weight" yaml:"weight"`
 }
 
-func LoadConfig() (*Config, error) {
-	return &Config{
-		Server: ServerConfig{
-			Port:         8080,
-			ReadTimeout:  5 * time.Second,
-			WriteTimeout: 10 * time.Second,
-			IdleTimeout:  120 * time.Second,
-		},
-		Routes: []RouteConfig{
-			{
-				ID:          "user-service-route",
-				Path:        "/users",
-				Methods:     []string{"GET", "POST"},
-				StripPrefix: true,
-				Upstreams: []UpstreamNode{
-					{
-						ID:     "user-service-1",
-						URL:    "http://localhost:8081",
-						Weight: 1,
-					},
-				},
-			},
-		},
-	}, nil
+func LoadConfig(configPath string) (*Config, error) {
+	v := viper.New()
+
+	v.SetConfigFile(configPath)
+	v.SetConfigType("yaml")
+
+	v.SetDefault("server.port", 8080)
+	v.SetDefault("server.read_timeout", "5s")
+	v.SetDefault("server.write_timeout", "10s")
+	v.SetDefault("server.idle_timeout", "120s")
+
+	if err := v.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var cfg Config
+	if err := v.Unmarshal(&cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	return &cfg, nil
 }

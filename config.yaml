@@ -1,0 +1,31 @@
+server:
+  port: 8080
+  read_timeout: 5s
+  write_timeout: 10s
+  idle_timeout: 120s
+
+routes:
+  - id: "user-service-route"
+    path: "/users"
+    methods:
+      - "GET"
+      - "POST"
+    strip_prefix: true
+    upstreams:
+      - id: "user-service-1"
+        url: "http://localhost:8081"
+        weight: 3
+      - id: "user-service-2"
+        url: "http://localhost:8082"
+        weight: 1
+
+  - id: "order-service-route"
+    path: "/orders"
+    methods:
+      - "GET"
+      - "PUT"
+    strip_prefix: false
+    upstreams:
+      - id: "order-service-1"
+        url: "http://localhost:8083"
+        weight: 1
