@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"janusgate/internal/config"
 	"janusgate/internal/proxy"
@@ -17,6 +18,14 @@ var (
 	ErrRouteNotFound = errors.New("route not found")
 	ErrInvalidPath   = errors.New("invalid route path")
 )
+
+type ErrorResponse struct {
+	Error     string    `json:"error"`
+	Message   string    `json:"message"`
+	Path      string    `json:"path"`
+	Code      int       `json:"code"`
+	Timestamp time.Time `json:"timestamp"`
+}
 
 type Router interface {
 	AddRoute(route config.RouteConfig, handler http.Handler) error
@@ -83,8 +92,7 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 			return fmt.Errorf("failed to register route %s: %w", route.ID, err)
 		}
 
-		log.Printf("Loaded & Bound Route [%s]: Path=%s -> Target=%s (Methods: %v, MatchType: %s)",
-			route.ID, route.Path, targetURL, route.Methods, route.MatchType)
+		log.Printf("Loaded Route [%s]: Path=%s -> Target=%s", route.ID, route.Path, targetURL)
 	}
 	return nil
 }
@@ -97,7 +105,6 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var matchedHandler http.Handler
 	methodMatched := false
 	pathMatched := false
-
 	longestPrefix := -1
 
 	for _, entry := range r.routes {
@@ -133,23 +140,13 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if pathMatched && !methodMatched {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":   "Method Not Allowed",
-			"message": fmt.Sprintf("HTTP method %s is not allowed for this route", req.Method),
-			"code":    405,
-		})
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method Not Allowed",
+			fmt.Sprintf("HTTP method %s is not allowed for this route", req.Method), path)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNotFound)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"error":   "Not Found",
-		"message": "No matching route found for the requested path",
-		"code":    404,
-	})
+	writeJSONError(w, http.StatusNotFound, "Not Found",
+		"No matching route found for the requested path", path)
 }
 
 func isMethodAllowed(allowedMethods []string, reqMethod string) bool {
@@ -162,4 +159,19 @@ func isMethodAllowed(allowedMethods []string, reqMethod string) bool {
 		}
 	}
 	return false
+}
+
+func writeJSONError(w http.ResponseWriter, statusCode int, errType, message, path string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+
+	resp := ErrorResponse{
+		Error:     errType,
+		Message:   message,
+		Path:      path,
+		Code:      statusCode,
+		Timestamp: time.Now().UTC(),
+	}
+
+	_ = json.NewEncoder(w).Encode(resp)
 }
