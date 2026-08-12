@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -33,22 +35,69 @@ type UpstreamNode struct {
 func LoadConfig(configPath string) (*Config, error) {
 	v := viper.New()
 
-	v.SetConfigFile(configPath)
-	v.SetConfigType("yaml")
+	if configPath != "" {
+		v.SetConfigFile(configPath)
+	} else {
+		v.SetConfigName("config")
+		v.SetConfigType("yaml")
+		v.AddConfigPath(".")
+		v.AddConfigPath("./configs")
+	}
 
-	v.SetDefault("server.port", 8080)
-	v.SetDefault("server.read_timeout", "5s")
-	v.SetDefault("server.write_timeout", "10s")
-	v.SetDefault("server.idle_timeout", "120s")
+	v.SetEnvPrefix("JANUS")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	setDefaults(v)
 
 	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
+			return nil, fmt.Errorf("error reading config file: %w", err)
+		}
 	}
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, fmt.Errorf("unable to decode config into struct: %w", err)
+	}
+
+	if err := validateConfig(&cfg); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	return &cfg, nil
+}
+
+func setDefaults(v *viper.Viper) {
+	v.SetDefault("server.port", 8080)
+	v.SetDefault("server.read_timeout", "5s")
+	v.SetDefault("server.write_timeout", "10s")
+	v.SetDefault("server.idle_timeout", "120s")
+}
+
+func validateConfig(cfg *Config) error {
+	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
+		return fmt.Errorf("invalid server port: %d", cfg.Server.Port)
+	}
+
+	if len(cfg.Routes) == 0 {
+		return errors.New("at least one route must be defined")
+	}
+
+	for _, route := range cfg.Routes {
+		if route.Path == "" {
+			return fmt.Errorf("route %s: path cannot be empty", route.ID)
+		}
+		if len(route.Upstreams) == 0 {
+			return fmt.Errorf("route %s: must have at least one upstream", route.ID)
+		}
+		for _, upstream := range route.Upstreams {
+			if upstream.URL == "" {
+				return fmt.Errorf("upstream %s in route %s: URL cannot be empty", upstream.ID, route.ID)
+			}
+		}
+	}
+
+	return nil
 }
