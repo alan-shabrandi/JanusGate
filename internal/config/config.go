@@ -22,6 +22,7 @@ type ServerConfig struct {
 type RouteConfig struct {
 	ID          string         `mapstructure:"id" json:"id" yaml:"id"`
 	Path        string         `mapstructure:"path" json:"path" yaml:"path"`
+	MatchType   string         `mapstructure:"match_type" json:"match_type" yaml:"match_type"` // "exact" یا "prefix"
 	Methods     []string       `mapstructure:"methods" json:"methods" yaml:"methods"`
 	StripPrefix bool           `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
 	Upstreams   []UpstreamNode `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`

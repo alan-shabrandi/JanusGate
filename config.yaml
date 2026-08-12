@@ -5,11 +5,18 @@ server:
   idle_timeout: 120s
 
 routes:
+  - id: "exact-health-route"
+    path: "/ping"
+    match_type: "exact"
+    upstreams:
+      - id: "user-service-1"
+        url: "http://localhost:8081"
   - id: "user-service-route"
     path: "/users"
     methods:
       - "GET"
       - "POST"
+    match_type: "prefix"
     strip_prefix: true
     upstreams:
       - id: "user-service-1"
