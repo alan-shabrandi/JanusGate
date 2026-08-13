@@ -11,11 +11,18 @@ import (
 type responseWriterDelegator struct {
 	http.ResponseWriter
 	statusCode int
+	written    int64
 }
 
 func (rw *responseWriterDelegator) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *responseWriterDelegator) Write(b []byte) (int, error) {
+	n, err := rw.ResponseWriter.Write(b)
+	rw.written += int64(n)
+	return n, err
 }
 
 func Logger(next http.Handler) http.Handler {
@@ -29,16 +36,29 @@ func Logger(next http.Handler) http.Handler {
 
 		next.ServeHTTP(wrappedWriter, r)
 
-		duration := time.Since(start)
+		latency := time.Since(start)
+
+		status := wrappedWriter.statusCode
 		clientIP := extractClientIP(r)
 
-		slog.Info("HTTP Request",
+		fields := []any{
 			slog.String("client_ip", clientIP),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
-			slog.Int("status", wrappedWriter.statusCode),
-			slog.Duration("duration", duration),
-		)
+			slog.Int("status", status),
+			slog.String("latency", latency.String()),
+			slog.Int64("latency_ms", latency.Milliseconds()),
+			slog.Int64("bytes_written", wrappedWriter.written),
+		}
+
+		switch {
+		case status >= 500:
+			slog.Error("HTTP Request Failed", fields...)
+		case status >= 400:
+			slog.Warn("HTTP Request Client Error", fields...)
+		default:
+			slog.Info("HTTP Request Handled", fields...)
+		}
 	})
 }
 
