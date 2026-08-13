@@ -13,6 +13,7 @@ import (
 
 	"janusgate/internal/config"
 	"janusgate/internal/middleware"
+	"janusgate/internal/ratelimit"
 	"janusgate/internal/router"
 	"janusgate/internal/server"
 )
@@ -32,6 +33,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	redisLimiter, err := ratelimit.NewRedisLimiter(cfg.Redis)
+	if err != nil {
+		slog.Error("Failed to initialize Redis rate limiter", "error", err)
+		os.Exit(1)
+	}
+	defer redisLimiter.Close()
+
 	rt := router.NewRouter()
 	if err := rt.LoadRoutes(cfg.Routes); err != nil {
 		slog.Error("Failed to load routes into router", "error", err)
@@ -42,6 +50,7 @@ func main() {
 		middleware.Recovery,
 		middleware.RequestID,
 		middleware.Logger,
+		middleware.RateLimit(redisLimiter, 60, time.Minute),
 	)
 
 	handlerWithMiddleware := mwChain.Then(rt)
