@@ -1,13 +1,17 @@
-redis:
-  addr: "localhost:6379"
-  password: ""
-  db: 0
-
 server:
   port: 8080
   read_timeout: 5s
   write_timeout: 10s
   idle_timeout: 120s
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
+auth:
+  jwt_secret: "janusgate-super-secret-key-change-in-production"
+  token_expiry: 15m
 
 routes:
   - id: "exact-health-route"
@@ -25,7 +29,6 @@ routes:
       - "POST"
     match_type: "prefix"
     strip_prefix: true
-    # اضافه شدن تنظیمات پیشرفته سیستم
     load_balancer: "weighted_round_robin"
     rate_limit:
       enabled: true

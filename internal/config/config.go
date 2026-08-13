@@ -13,14 +13,9 @@ import (
 
 type Config struct {
 	Server ServerConfig  `mapstructure:"server" json:"server" yaml:"server"`
-	Redis  RedisConfig   `mapstructure:"redis" json:"redis" yaml:"redis"` // <-- اضافه شد
+	Redis  RedisConfig   `mapstructure:"redis" json:"redis" yaml:"redis"`
+	Auth   AuthConfig    `mapstructure:"auth" json:"auth" yaml:"auth"`
 	Routes []RouteConfig `mapstructure:"routes" json:"routes" yaml:"routes"`
-}
-
-type RedisConfig struct {
-	Addr     string `mapstructure:"addr" json:"addr" yaml:"addr"`
-	Password string `mapstructure:"password" json:"password" yaml:"password"`
-	DB       int    `mapstructure:"db" json:"db" yaml:"db"`
 }
 
 type ServerConfig struct {
@@ -29,7 +24,16 @@ type ServerConfig struct {
 	WriteTimeout time.Duration `mapstructure:"write_timeout" json:"write_timeout" yaml:"write_timeout"`
 	IdleTimeout  time.Duration `mapstructure:"idle_timeout" json:"idle_timeout" yaml:"idle_timeout"`
 }
+type RedisConfig struct {
+	Addr     string `mapstructure:"addr" json:"addr" yaml:"addr"`
+	Password string `mapstructure:"password" json:"password" yaml:"password"`
+	DB       int    `mapstructure:"db" json:"db" yaml:"db"`
+}
 
+type AuthConfig struct {
+	JWTSecret   string        `mapstructure:"jwt_secret" json:"jwt_secret" yaml:"jwt_secret"`
+	TokenExpiry time.Duration `mapstructure:"token_expiry" json:"token_expiry" yaml:"token_expiry"`
+}
 type RouteConfig struct {
 	ID             string               `mapstructure:"id" json:"id" yaml:"id"`
 	PathPrefix     string               `mapstructure:"path_prefix" json:"path_prefix" yaml:"path_prefix"` // طبق README
@@ -115,6 +119,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.addr", "localhost:6379")
 	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
+	v.SetDefault("auth.jwt_secret", "janusgate-default-secret-key-change-in-production")
+	v.SetDefault("auth.token_expiry", 15*time.Minute)
 }
 
 func validateConfig(cfg *Config) error {
