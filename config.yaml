@@ -1,3 +1,8 @@
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+
 server:
   port: 8080
   read_timeout: 5s
