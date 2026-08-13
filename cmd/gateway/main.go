@@ -1,14 +1,10 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"janusgate/internal/auth"
@@ -16,21 +12,12 @@ import (
 	"janusgate/internal/middleware"
 	"janusgate/internal/ratelimit"
 	"janusgate/internal/router"
-	"janusgate/internal/server"
 )
 
 func main() {
-	configPath := flag.String("config", "config.yaml", "Path to configuration file")
-	flag.Parse()
-
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
-	slog.SetDefault(logger)
-
-	cfg, v, err := config.LoadConfig(*configPath)
+	cfg, v, err := config.LoadConfig("config.yaml")
 	if err != nil {
-		slog.Error("Failed to load config", "error", err, "path", *configPath)
+		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
 
@@ -43,54 +30,28 @@ func main() {
 	}
 	defer redisLimiter.Close()
 
-	rt := router.NewRouter()
-	if err := rt.LoadRoutes(cfg.Routes); err != nil {
-		slog.Error("Failed to load routes into router", "error", err)
-		os.Exit(1)
-	}
+	rt := router.NewRouter(cfg.Routes, jwtMgr)
 
-	mwChain := middleware.New(
+	config.WatchChanges(v, func(newCfg *config.Config) {
+		slog.Info("Config changed, reloading routes...")
+		if err := rt.LoadRoutes(newCfg.Routes); err != nil {
+			slog.Error("Failed to reload routes", "error", err)
+		}
+	})
+
+	globalChain := middleware.New(
 		middleware.Recovery,
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.RateLimit(redisLimiter, 60, time.Minute),
-		middleware.Authenticate(jwtMgr),
 	)
 
-	handlerWithMiddleware := mwChain.Then(rt)
+	serverHandler := globalChain.Then(rt)
 
-	config.WatchChanges(v, func(newCfg *config.Config) {
-		slog.Info("Configuration file changed, reloading routes...")
-		if err := rt.LoadRoutes(newCfg.Routes); err != nil {
-			slog.Error("Failed to hot-reload routes", "error", err)
-		} else {
-			slog.Info("Routes hot-reloaded successfully!")
-		}
-	})
+	serverAddr := fmt.Sprintf(":%d", cfg.Server.Port)
+	slog.Info("Starting JanusGate API Gateway...", "addr", serverAddr)
 
-	srv := server.NewServer(&cfg.Server, handlerWithMiddleware)
-
-	go func() {
-		slog.Info("Starting JanusGate server", "port", cfg.Server.Port)
-		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("Server failed to start", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	<-quit
-
-	slog.Info("Shutting down server gracefully...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		slog.Error("Server forced to shutdown", "error", err)
-		os.Exit(1)
+	if err := http.ListenAndServe(serverAddr, serverHandler); err != nil {
+		slog.Error("Server error", "error", err)
 	}
-
-	slog.Info("Server exited successfully")
 }

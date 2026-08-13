@@ -24,6 +24,7 @@ type ServerConfig struct {
 	WriteTimeout time.Duration `mapstructure:"write_timeout" json:"write_timeout" yaml:"write_timeout"`
 	IdleTimeout  time.Duration `mapstructure:"idle_timeout" json:"idle_timeout" yaml:"idle_timeout"`
 }
+
 type RedisConfig struct {
 	Addr     string `mapstructure:"addr" json:"addr" yaml:"addr"`
 	Password string `mapstructure:"password" json:"password" yaml:"password"`
@@ -34,16 +35,20 @@ type AuthConfig struct {
 	JWTSecret   string        `mapstructure:"jwt_secret" json:"jwt_secret" yaml:"jwt_secret"`
 	TokenExpiry time.Duration `mapstructure:"token_expiry" json:"token_expiry" yaml:"token_expiry"`
 }
+
+type UpstreamConfig struct {
+	URL    string `mapstructure:"url" json:"url" yaml:"url"`
+	Weight int    `mapstructure:"weight" json:"weight" yaml:"weight"` // <-- فیلد Weight اضافه شد
+}
+
 type RouteConfig struct {
-	ID             string               `mapstructure:"id" json:"id" yaml:"id"`
-	PathPrefix     string               `mapstructure:"path_prefix" json:"path_prefix" yaml:"path_prefix"` // طبق README
-	MatchType      string               `mapstructure:"match_type" json:"match_type" yaml:"match_type"`
-	Methods        []string             `mapstructure:"methods" json:"methods" yaml:"methods"`
-	StripPrefix    bool                 `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
-	LoadBalancer   string               `mapstructure:"load_balancer" json:"load_balancer" yaml:"load_balancer"`
-	RateLimit      RateLimitConfig      `mapstructure:"rate_limit" json:"rate_limit" yaml:"rate_limit"`
-	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker" json:"circuit_breaker" yaml:"circuit_breaker"`
-	Upstreams      []UpstreamNode       `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`
+	ID           string           `mapstructure:"id" json:"id" yaml:"id"`
+	PathPrefix   string           `mapstructure:"path_prefix" json:"path_prefix" yaml:"path_prefix"`
+	MatchType    string           `mapstructure:"match_type" json:"match_type" yaml:"match_type"`
+	Methods      []string         `mapstructure:"methods" json:"methods" yaml:"methods"`
+	StripPrefix  bool             `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
+	RequiresAuth bool             `mapstructure:"requires_auth" json:"requires_auth" yaml:"requires_auth"`
+	Upstreams    []UpstreamConfig `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`
 }
 
 type RateLimitConfig struct {

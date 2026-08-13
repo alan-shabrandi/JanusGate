@@ -10,7 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"janusgate/internal/auth"
 	"janusgate/internal/config"
+	"janusgate/internal/middleware"
 	"janusgate/internal/proxy"
 )
 
@@ -38,14 +40,21 @@ type routeEntry struct {
 }
 
 type memoryRouter struct {
-	mu     sync.RWMutex
-	routes []routeEntry
+	mu       sync.RWMutex
+	routes   []routeEntry
+	tokenMgr auth.TokenManager
 }
 
-func NewRouter() Router {
-	return &memoryRouter{
-		routes: make([]routeEntry, 0),
+func NewRouter(routes []config.RouteConfig, tokenMgr auth.TokenManager) Router {
+	r := &memoryRouter{
+		tokenMgr: tokenMgr,
 	}
+
+	if err := r.LoadRoutes(routes); err != nil {
+		slog.Error("Failed to load initial routes", "error", err)
+	}
+
+	return r
 }
 
 func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
@@ -78,12 +87,21 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 			handler = proxy.StripPrefix(route.PathPrefix, revProxy)
 		}
 
+		if route.RequiresAuth {
+			if r.tokenMgr == nil {
+				slog.Error("Route requires authentication but TokenManager is nil", "route_id", route.ID)
+			} else {
+				handler = middleware.Authenticate(r.tokenMgr)(handler)
+				slog.Info("Route loaded [PRIVATE]", "id", route.ID, "path", route.PathPrefix, "target", targetURL)
+			}
+		} else {
+			slog.Info("Route loaded [PUBLIC]", "id", route.ID, "path", route.PathPrefix, "target", targetURL)
+		}
+
 		newRoutes = append(newRoutes, routeEntry{
 			config:  route,
 			handler: handler,
 		})
-
-		slog.Info("Loaded Route", "id", route.ID, "path", route.PathPrefix, "target", targetURL)
 	}
 
 	r.mu.Lock()
@@ -103,6 +121,7 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	pathMatched := false
 	longestPrefix := -1
 
+	// بررسی مسیرهای Exact Match
 	for _, entry := range r.routes {
 		if entry.config.MatchType == "exact" && entry.config.PathPrefix == path {
 			pathMatched = true
@@ -114,6 +133,7 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	// بررسی مسیرهای Prefix Match (Longest Prefix Match)
 	if matchedHandler == nil {
 		for _, entry := range r.routes {
 			if entry.config.MatchType == "prefix" {
