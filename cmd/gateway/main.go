@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"janusgate/internal/auth"
 	"janusgate/internal/config"
 	"janusgate/internal/middleware"
 	"janusgate/internal/ratelimit"
@@ -33,6 +34,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	jwtMgr := auth.NewJWTManager(cfg.Auth.JWTSecret)
+
 	redisLimiter, err := ratelimit.NewRedisLimiter(cfg.Redis)
 	if err != nil {
 		slog.Error("Failed to initialize Redis rate limiter", "error", err)
@@ -51,6 +54,7 @@ func main() {
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.RateLimit(redisLimiter, 60, time.Minute),
+		middleware.Authenticate(jwtMgr),
 	)
 
 	handlerWithMiddleware := mwChain.Then(rt)
