@@ -50,7 +50,7 @@ func (cb *CircuitBreaker) Execute(req *http.Request, next http.RoundTripper) (*h
 		}
 
 		if resp.StatusCode >= http.StatusInternalServerError {
-			return resp, fmt.Errorf("upstream returned server error: %d", resp.StatusCode)
+			return resp, fmt.Errorf("upstream returned server error status: %d", resp.StatusCode)
 		}
 
 		return resp, nil

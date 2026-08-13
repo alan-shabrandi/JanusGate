@@ -33,12 +33,12 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker, retryCfg conf
 
 	var transport http.RoundTripper = http.DefaultTransport
 
-	if cb != nil {
-		proxy.Transport = NewCircuitBreakerTransport(transport, cb)
-	}
-
 	if retryCfg.Attempts > 0 {
 		transport = NewRetryTransport(transport, retryCfg)
+	}
+
+	if cb != nil {
+		transport = NewCircuitBreakerTransport(transport, cb)
 	}
 
 	proxy.Transport = transport
@@ -50,7 +50,7 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker, retryCfg conf
 			w.WriteHeader(http.StatusGatewayTimeout)
 			_ = json.NewEncoder(w).Encode(ErrorResponse{
 				Error:     "Gateway Timeout",
-				Message:   "Upstream service failed to respond within timeout.",
+				Message:   "Upstream service failed to respond within configured timeout.",
 				Path:      r.URL.Path,
 				Code:      http.StatusGatewayTimeout,
 				Timestamp: time.Now().UTC(),
@@ -62,7 +62,7 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker, retryCfg conf
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(ErrorResponse{
 				Error:     "Service Unavailable",
-				Message:   "Upstream service is unavailable (Circuit Breaker Open).",
+				Message:   "Upstream service is temporarily unavailable due to high failure rate (Circuit Breaker Open).",
 				Path:      r.URL.Path,
 				Code:      http.StatusServiceUnavailable,
 				Timestamp: time.Now().UTC(),
