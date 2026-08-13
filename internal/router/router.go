@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"janusgate/internal/auth"
+	"janusgate/internal/circuitbreaker"
 	"janusgate/internal/config"
 	"janusgate/internal/middleware"
 	"janusgate/internal/proxy"
@@ -75,8 +76,9 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 		}
 
 		targetURL := route.Upstreams[0].URL
+		cb := circuitbreaker.New(route.ID, 5, 10*time.Second)
 
-		revProxy, err := proxy.NewProxy(targetURL)
+		revProxy, err := proxy.NewProxy(targetURL, cb)
 		if err != nil {
 			return fmt.Errorf("failed to create proxy for route %s: %w", route.ID, err)
 		}
