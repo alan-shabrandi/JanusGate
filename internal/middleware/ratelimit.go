@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"janusgate/internal/ratelimit"
@@ -28,7 +29,7 @@ func RateLimit(limiter ratelimit.RateLimiter, limit int, window time.Duration) M
 			clientIP := extractClientIP(r)
 			key := "ip:" + clientIP
 
-			allowed, err := limiter.Allow(r.Context(), key, limit, window)
+			allowed, remaining, err := limiter.Allow(r.Context(), key, limit, window)
 			if err != nil {
 				slog.Error("Rate limiter error, allowing request (Fail-Open)",
 					"error", err,
@@ -37,6 +38,9 @@ func RateLimit(limiter ratelimit.RateLimiter, limit int, window time.Duration) M
 				next.ServeHTTP(w, r)
 				return
 			}
+
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 
 			if !allowed {
 				slog.Warn("Rate limit exceeded for client",

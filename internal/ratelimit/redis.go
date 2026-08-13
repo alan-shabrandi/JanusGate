@@ -82,28 +82,29 @@ func NewRedisLimiter(cfg config.RedisConfig) (RateLimiter, error) {
 	}, nil
 }
 
-func (r *redisRateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+func (r *redisRateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, int, error) {
 	if limit <= 0 {
-		return true, nil
+		return true, limit, nil // عبور آزاد
 	}
 
 	refillRate := float64(limit) / window.Seconds()
 	now := time.Now().Unix()
-
 	redisKey := fmt.Sprintf("ratelimit:%s", key)
 
 	res, err := r.script.Run(ctx, r.client, []string{redisKey}, limit, refillRate, now, 1).Result()
 	if err != nil {
-		return false, fmt.Errorf("failed to execute rate limit lua script: %w", err)
+		return false, 0, fmt.Errorf("failed to execute rate limit lua script: %w", err)
 	}
 
 	results, ok := res.([]interface{})
-	if !ok || len(results) < 1 {
-		return false, fmt.Errorf("invalid response format from redis lua script")
+	if !ok || len(results) < 2 { // بررسی وجود هر دو المان
+		return false, 0, fmt.Errorf("invalid response format from redis lua script")
 	}
 
 	allowed := results[0].(int64) == 1
-	return allowed, nil
+	remaining := int(results[1].(int64)) // استخراج تعداد باقیمانده از خروجی Lua
+
+	return allowed, remaining, nil
 }
 
 func (r *redisRateLimiter) Close() error {
