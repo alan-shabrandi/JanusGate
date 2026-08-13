@@ -13,7 +13,14 @@ import (
 
 type Config struct {
 	Server ServerConfig  `mapstructure:"server" json:"server" yaml:"server"`
+	Redis  RedisConfig   `mapstructure:"redis" json:"redis" yaml:"redis"` // <-- اضافه شد
 	Routes []RouteConfig `mapstructure:"routes" json:"routes" yaml:"routes"`
+}
+
+type RedisConfig struct {
+	Addr     string `mapstructure:"addr" json:"addr" yaml:"addr"`
+	Password string `mapstructure:"password" json:"password" yaml:"password"`
+	DB       int    `mapstructure:"db" json:"db" yaml:"db"`
 }
 
 type ServerConfig struct {
@@ -105,6 +112,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.read_timeout", 5*time.Second)
 	v.SetDefault("server.write_timeout", 10*time.Second)
 	v.SetDefault("server.idle_timeout", 120*time.Second)
+	v.SetDefault("redis.addr", "localhost:6379")
+	v.SetDefault("redis.password", "")
+	v.SetDefault("redis.db", 0)
 }
 
 func validateConfig(cfg *Config) error {

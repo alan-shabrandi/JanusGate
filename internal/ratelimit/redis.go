@@ -6,16 +6,16 @@ import (
 	"log/slog"
 	"time"
 
+	"janusgate/internal/config"
+
 	"github.com/redis/go-redis/v9"
 )
 
-type RedisConfig struct {
-	Addr     string `mapstructure:"addr" json:"addr" yaml:"addr"`
-	Password string `mapstructure:"password" json:"password" yaml:"password"`
-	DB       int    `mapstructure:"db" json:"db" yaml:"db"`
+type redisRateLimiter struct {
+	client *redis.Client
 }
 
-func NewRedisClient(cfg RedisConfig) (*redis.Client, error) {
+func NewRedisLimiter(cfg config.RedisConfig) (RateLimiter, error) {
 	if cfg.Addr == "" {
 		cfg.Addr = "localhost:6379"
 	}
@@ -27,16 +27,29 @@ func NewRedisClient(cfg RedisConfig) (*redis.Client, error) {
 		DialTimeout:  5 * time.Second,
 		ReadTimeout:  3 * time.Second,
 		WriteTimeout: 3 * time.Second,
-		PoolSize:     10,
+		PoolSize:     20,
+		MinIdleConns: 5,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("failed to connect to redis at %s: %w", cfg.Addr, err)
+		return nil, fmt.Errorf("redis connection ping failed: %w", err)
 	}
 
-	slog.Info("Successfully connected to Redis", "addr", cfg.Addr, "db", cfg.DB)
-	return client, nil
+	slog.Info("Connected to Redis successfully", "addr", cfg.Addr, "db", cfg.DB)
+
+	return &redisRateLimiter{
+		client: client,
+	}, nil
+}
+
+func (r *redisRateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (r *redisRateLimiter) Close() error {
+	slog.Info("Closing Redis connection pool...")
+	return r.client.Close()
 }
