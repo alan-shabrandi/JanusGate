@@ -62,6 +62,7 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 	newRoutes := make([]routeEntry, 0, len(routes))
 
 	for _, route := range routes {
+
 		if len(route.Upstreams) == 0 {
 			slog.Warn("Route has no upstreams configured, skipping...", "route_id", route.ID)
 			continue
@@ -75,10 +76,10 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 			route.MatchType = "prefix"
 		}
 
-		targetURL := route.Upstreams[0].URL
+		primaryUpstream := route.Upstreams[0].URL
 		cb := circuitbreaker.New(route.ID, 5, 10*time.Second)
 
-		revProxy, err := proxy.NewProxy(targetURL, cb, route.Retry)
+		revProxy, err := proxy.NewProxy(primaryUpstream, cb, route.Retry)
 		if err != nil {
 			return fmt.Errorf("failed to create proxy for route %s: %w", route.ID, err)
 		}
@@ -88,7 +89,7 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 		handler = middleware.Timeout(route.Timeout)(handler)
 
 		if route.StripPrefix {
-			handler = proxy.StripPrefix(route.PathPrefix, revProxy)
+			handler = proxy.StripPrefix(route.PathPrefix, handler)
 		}
 
 		if route.RequiresAuth {
@@ -96,10 +97,10 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 				slog.Error("Route requires authentication but TokenManager is nil", "route_id", route.ID)
 			} else {
 				handler = middleware.Authenticate(r.tokenMgr)(handler)
-				slog.Info("Route loaded [PRIVATE]", "id", route.ID, "path", route.PathPrefix, "target", targetURL)
+				slog.Info("Route loaded [PRIVATE]", "id", route.ID, "path", route.PathPrefix, "target", primaryUpstream)
 			}
 		} else {
-			slog.Info("Route loaded [PUBLIC]", "id", route.ID, "path", route.PathPrefix, "target", targetURL)
+			slog.Info("Route loaded [PUBLIC]", "id", route.ID, "path", route.PathPrefix, "target", primaryUpstream)
 		}
 
 		newRoutes = append(newRoutes, routeEntry{
