@@ -39,6 +39,7 @@ func main() {
 	}
 
 	mwChain := middleware.New(
+		middleware.Recovery,
 		middleware.RequestID,
 		middleware.Logger,
 	)
