@@ -78,7 +78,7 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 		targetURL := route.Upstreams[0].URL
 		cb := circuitbreaker.New(route.ID, 5, 10*time.Second)
 
-		revProxy, err := proxy.NewProxy(targetURL, cb)
+		revProxy, err := proxy.NewProxy(targetURL, cb, route.Retry)
 		if err != nil {
 			return fmt.Errorf("failed to create proxy for route %s: %w", route.ID, err)
 		}

@@ -48,8 +48,15 @@ type RouteConfig struct {
 	Methods      []string         `mapstructure:"methods" json:"methods" yaml:"methods"`
 	StripPrefix  bool             `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
 	RequiresAuth bool             `mapstructure:"requires_auth" json:"requires_auth" yaml:"requires_auth"`
-	Timeout      time.Duration    `mapstructure:"timeout" json:"timeout" yaml:"timeout"` // <-- فیلد جدید
+	Timeout      time.Duration    `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
+	Retry        RetryConfig      `mapstructure:"retry" json:"retry" yaml:"retry"` // <-- تنظیمات جدید
 	Upstreams    []UpstreamConfig `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`
+}
+
+type RetryConfig struct {
+	Attempts        int           `mapstructure:"attempts" json:"attempts" yaml:"attempts"`
+	InitialInterval time.Duration `mapstructure:"initial_interval" json:"initial_interval" yaml:"initial_interval"`
+	MaxInterval     time.Duration `mapstructure:"max_interval" json:"max_interval" yaml:"max_interval"`
 }
 
 type RateLimitConfig struct {
@@ -153,6 +160,18 @@ func validateConfig(cfg *Config) error {
 
 		if route.Timeout <= 0 {
 			cfg.Routes[i].Timeout = 5 * time.Second
+		}
+
+		if route.Retry.Attempts < 0 {
+			cfg.Routes[i].Retry.Attempts = 0
+		}
+		if route.Retry.Attempts > 0 {
+			if route.Retry.InitialInterval <= 0 {
+				cfg.Routes[i].Retry.InitialInterval = 100 * time.Millisecond
+			}
+			if route.Retry.MaxInterval <= 0 {
+				cfg.Routes[i].Retry.MaxInterval = 2 * time.Second
+			}
 		}
 
 		for j, upstream := range route.Upstreams {

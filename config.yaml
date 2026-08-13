@@ -14,17 +14,12 @@ auth:
   token_expiry: 15m
 
 routes:
-  - path: "/api/v1/auth/"
-    target: "http://localhost:8081"
-    strip_prefix: "/api/v1/auth"
-    requires_auth: false
-
-  - path: "/api/v1/users/"
-    target: "http://localhost:8082"
-    strip_prefix: "/api/v1"
-    requires_auth: true
-
-  - path: "/api/v1/orders/"
-    target: "http://localhost:8083"
-    strip_prefix: "/api/v1"
-    requires_auth: true
+  - id: "order-service"
+    path_prefix: "/api/v1/orders"
+    timeout: 5s
+    retry:
+      attempts: 3
+      initial_interval: 100ms
+      max_interval: 1s
+    upstreams:
+      - url: "http://localhost:8081"

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"janusgate/internal/circuitbreaker"
+	"janusgate/internal/config"
 )
 
 type ErrorResponse struct {
@@ -22,7 +23,7 @@ type ErrorResponse struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker) (http.Handler, error) {
+func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker, retryCfg config.RetryConfig) (http.Handler, error) {
 	target, err := url.Parse(targetURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid target URL: %w", err)
@@ -30,9 +31,17 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker) (http.Handler
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
+	var transport http.RoundTripper = http.DefaultTransport
+
 	if cb != nil {
-		proxy.Transport = NewCircuitBreakerTransport(http.DefaultTransport, cb)
+		proxy.Transport = NewCircuitBreakerTransport(transport, cb)
 	}
+
+	if retryCfg.Attempts > 0 {
+		transport = NewRetryTransport(transport, retryCfg)
+	}
+
+	proxy.Transport = transport
 
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		w.Header().Set("Content-Type", "application/json")
@@ -41,7 +50,7 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker) (http.Handler
 			w.WriteHeader(http.StatusGatewayTimeout)
 			_ = json.NewEncoder(w).Encode(ErrorResponse{
 				Error:     "Gateway Timeout",
-				Message:   "Upstream service failed to respond within the configured timeout duration.",
+				Message:   "Upstream service failed to respond within timeout.",
 				Path:      r.URL.Path,
 				Code:      http.StatusGatewayTimeout,
 				Timestamp: time.Now().UTC(),
@@ -53,7 +62,7 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker) (http.Handler
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(ErrorResponse{
 				Error:     "Service Unavailable",
-				Message:   "Upstream service is temporarily unavailable due to high error rates (Circuit Breaker Open).",
+				Message:   "Upstream service is unavailable (Circuit Breaker Open).",
 				Path:      r.URL.Path,
 				Code:      http.StatusServiceUnavailable,
 				Timestamp: time.Now().UTC(),
