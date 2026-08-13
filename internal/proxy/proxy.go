@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"janusgate/internal/middleware"
 )
 
 type ErrorResponse struct {
@@ -113,4 +115,18 @@ func StripPrefix(prefix string, next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func EnrichUpstreamHeaders(req *http.Request) {
+	claims, ok := middleware.GetUserClaims(req.Context())
+	if !ok || claims == nil {
+		return
+	}
+
+	req.Header.Set("X-User-ID", claims.UserID)
+	req.Header.Set("X-User-Name", claims.Username)
+
+	if len(claims.Roles) > 0 {
+		req.Header.Set("X-User-Roles", strings.Join(claims.Roles, ","))
+	}
 }

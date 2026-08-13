@@ -91,3 +91,37 @@ func writeAuthError(w http.ResponseWriter, r *http.Request, message string, stat
 
 	_ = json.NewEncoder(w).Encode(resp)
 }
+
+func GetUserID(ctx context.Context) (string, bool) {
+	if claims, ok := GetUserClaims(ctx); ok && claims != nil {
+		return claims.UserID, true
+	}
+	return "", false
+}
+
+func GetUsername(ctx context.Context) (string, bool) {
+	if claims, ok := GetUserClaims(ctx); ok && claims != nil {
+		return claims.Username, true
+	}
+	return "", false
+}
+
+func GetUserRoles(ctx context.Context) ([]string, bool) {
+	if claims, ok := GetUserClaims(ctx); ok && claims != nil {
+		return claims.Roles, true
+	}
+	return nil, false
+}
+
+func HasRole(ctx context.Context, role string) bool {
+	roles, ok := GetUserRoles(ctx)
+	if !ok {
+		return false
+	}
+	for _, r := range roles {
+		if strings.EqualFold(r, role) {
+			return true
+		}
+	}
+	return false
+}
