@@ -48,6 +48,7 @@ type RouteConfig struct {
 	Methods      []string         `mapstructure:"methods" json:"methods" yaml:"methods"`
 	StripPrefix  bool             `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
 	RequiresAuth bool             `mapstructure:"requires_auth" json:"requires_auth" yaml:"requires_auth"`
+	Timeout      time.Duration    `mapstructure:"timeout" json:"timeout" yaml:"timeout"` // <-- فیلد جدید
 	Upstreams    []UpstreamConfig `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`
 }
 
@@ -148,6 +149,10 @@ func validateConfig(cfg *Config) error {
 
 		if len(route.Upstreams) == 0 {
 			return fmt.Errorf("route [%d] (%s): must have at least one upstream", i, route.ID)
+		}
+
+		if route.Timeout <= 0 {
+			cfg.Routes[i].Timeout = 5 * time.Second
 		}
 
 		for j, upstream := range route.Upstreams {

@@ -85,6 +85,8 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 
 		var handler http.Handler = revProxy
 
+		handler = middleware.Timeout(route.Timeout)(handler)
+
 		if route.StripPrefix {
 			handler = proxy.StripPrefix(route.PathPrefix, revProxy)
 		}
@@ -123,7 +125,6 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	pathMatched := false
 	longestPrefix := -1
 
-	// بررسی مسیرهای Exact Match
 	for _, entry := range r.routes {
 		if entry.config.MatchType == "exact" && entry.config.PathPrefix == path {
 			pathMatched = true
@@ -135,7 +136,6 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// بررسی مسیرهای Prefix Match (Longest Prefix Match)
 	if matchedHandler == nil {
 		for _, entry := range r.routes {
 			if entry.config.MatchType == "prefix" {

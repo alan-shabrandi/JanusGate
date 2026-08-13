@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,7 +22,6 @@ type ErrorResponse struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// NewProxy یک ReverseProxy مجهز به CircuitBreaker و ErrorHandler سفارشی می‌سازد
 func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker) (http.Handler, error) {
 	target, err := url.Parse(targetURL)
 	if err != nil {
@@ -30,16 +30,25 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker) (http.Handler
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
-	// ۱. تزریق RoundTripper سفارشی به پروکسی
 	if cb != nil {
 		proxy.Transport = NewCircuitBreakerTransport(http.DefaultTransport, cb)
 	}
 
-	// ۲. مدیریت خطاهای لایه شبکه و Circuit Breaker
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		w.Header().Set("Content-Type", "application/json")
 
-		// اگر مدار Open باشد
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(r.Context().Err(), context.DeadlineExceeded) {
+			w.WriteHeader(http.StatusGatewayTimeout)
+			_ = json.NewEncoder(w).Encode(ErrorResponse{
+				Error:     "Gateway Timeout",
+				Message:   "Upstream service failed to respond within the configured timeout duration.",
+				Path:      r.URL.Path,
+				Code:      http.StatusGatewayTimeout,
+				Timestamp: time.Now().UTC(),
+			})
+			return
+		}
+
 		if errors.Is(err, circuitbreaker.ErrCircuitOpen) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(ErrorResponse{
@@ -52,7 +61,6 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker) (http.Handler
 			return
 		}
 
-		// سایر خطاهای ارتباط با سرویس مقصد (مثل Down بودن سرور)
 		w.WriteHeader(http.StatusBadGateway)
 		_ = json.NewEncoder(w).Encode(ErrorResponse{
 			Error:     "Bad Gateway",
@@ -66,7 +74,6 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker) (http.Handler
 	return proxy, nil
 }
 
-// StripPrefix میدلور حذف پیشوند مسیر
 func StripPrefix(prefix string, h http.Handler) http.Handler {
 	if prefix == "" {
 		return h
