@@ -21,7 +21,9 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	flag.Parse()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
 	slog.SetDefault(logger)
 
 	cfg, v, err := config.LoadConfig(*configPath)
