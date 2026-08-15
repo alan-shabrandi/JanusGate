@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,15 +10,25 @@ import (
 
 type jwtManager struct {
 	secretKey []byte
+	issuer    string
 }
 
-func NewJWTManager(secretKey string) TokenManager {
+func NewJWTManager(secretKey, issuer string) (*jwtManager, error) {
+	if len(secretKey) < 32 {
+		return nil, errors.New("secret key must be at least 32 bytes for HS256")
+	}
+
+	if issuer == "" {
+		issuer = "janusgate"
+	}
+
 	return &jwtManager{
 		secretKey: []byte(secretKey),
-	}
+		issuer:    issuer,
+	}, nil
 }
 
-func (m *jwtManager) GenerateToken(userID string, username string, roles []string, duration time.Duration) (string, error) {
+func (m *jwtManager) GenerateToken(userID, username string, roles []string, duration time.Duration) (string, error) {
 	now := time.Now().UTC()
 	claims := Claims{
 		UserID:   userID,
@@ -27,7 +38,7 @@ func (m *jwtManager) GenerateToken(userID string, username string, roles []strin
 			ExpiresAt: jwt.NewNumericDate(now.Add(duration)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
-			Issuer:    "janusgate",
+			Issuer:    m.issuer,
 		},
 	}
 
@@ -53,7 +64,7 @@ func (m *jwtManager) ValidateToken(tokenStr string) (*Claims, error) {
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidToken, err)
+		return nil, fmt.Errorf("%w: %s", ErrInvalidToken, err.Error())
 	}
 
 	claims, ok := token.Claims.(*Claims)

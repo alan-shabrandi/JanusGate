@@ -107,3 +107,7 @@ grype-report.json
 *.orig
 *.rej
 EOF
+
+.repomixignore
+repomix-output.md
+repomix.config.json

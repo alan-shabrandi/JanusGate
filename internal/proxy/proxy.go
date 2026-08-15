@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -15,21 +16,19 @@ import (
 	"janusgate/internal/config"
 )
 
-type ErrorResponse struct {
-	Error     string    `json:"error"`
-	Message   string    `json:"message"`
-	Path      string    `json:"path"`
-	Code      int       `json:"code"`
-	Timestamp time.Time `json:"timestamp"`
-}
-
-func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker, retryCfg config.RetryConfig) (http.Handler, error) {
+func NewProxy(targetURL string, cb *circuitbreaker.Transport, retryCfg config.RetryConfig) (http.Handler, error) {
 	target, err := url.Parse(targetURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid target URL: %w", err)
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = target.Host
+	}
 
 	var transport http.RoundTripper = http.DefaultTransport
 
@@ -38,7 +37,7 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker, retryCfg conf
 	}
 
 	if cb != nil {
-		transport = NewCircuitBreakerTransport(transport, cb)
+		transport = cb
 	}
 
 	proxy.Transport = transport
@@ -70,10 +69,12 @@ func NewProxy(targetURL string, cb *circuitbreaker.CircuitBreaker, retryCfg conf
 			return
 		}
 
+		slog.Error("Upstream connection failed", "target", targetURL, "path", r.URL.Path, "error", err)
+
 		w.WriteHeader(http.StatusBadGateway)
 		_ = json.NewEncoder(w).Encode(ErrorResponse{
 			Error:     "Bad Gateway",
-			Message:   fmt.Sprintf("Failed to reach upstream server: %v", err),
+			Message:   "Failed to reach upstream server.",
 			Path:      r.URL.Path,
 			Code:      http.StatusBadGateway,
 			Timestamp: time.Now().UTC(),
@@ -92,7 +93,10 @@ func StripPrefix(prefix string, h http.Handler) http.Handler {
 		if !strings.HasPrefix(p, "/") {
 			p = "/" + p
 		}
+
 		r.URL.Path = p
+		r.URL.RawPath = ""
+
 		h.ServeHTTP(w, r)
 	})
 }

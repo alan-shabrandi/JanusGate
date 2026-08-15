@@ -2,9 +2,7 @@ package middleware
 
 import (
 	"log/slog"
-	"net"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -15,14 +13,23 @@ type responseWriterDelegator struct {
 }
 
 func (rw *responseWriterDelegator) WriteHeader(code int) {
-	rw.statusCode = code
-	rw.ResponseWriter.WriteHeader(code)
+	if rw.statusCode == 0 {
+		rw.statusCode = code
+		rw.ResponseWriter.WriteHeader(code)
+	}
 }
 
 func (rw *responseWriterDelegator) Write(b []byte) (int, error) {
+	if rw.statusCode == 0 {
+		rw.statusCode = http.StatusOK
+	}
 	n, err := rw.ResponseWriter.Write(b)
 	rw.written += int64(n)
 	return n, err
+}
+
+func (rw *responseWriterDelegator) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
 }
 
 func Logger(next http.Handler) http.Handler {
@@ -31,7 +38,7 @@ func Logger(next http.Handler) http.Handler {
 
 		wrappedWriter := &responseWriterDelegator{
 			ResponseWriter: w,
-			statusCode:     http.StatusOK,
+			statusCode:     0,
 		}
 
 		next.ServeHTTP(wrappedWriter, r)
@@ -39,6 +46,10 @@ func Logger(next http.Handler) http.Handler {
 		latency := time.Since(start)
 
 		status := wrappedWriter.statusCode
+		if status == 0 {
+			status = http.StatusOK
+		}
+
 		clientIP := extractClientIP(r)
 
 		fields := []any{
@@ -60,22 +71,4 @@ func Logger(next http.Handler) http.Handler {
 			slog.Info("HTTP Request Handled", fields...)
 		}
 	})
-}
-
-func extractClientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
-	}
-
-	if xrip := r.Header.Get("X-Real-IP"); xrip != "" {
-		return strings.TrimSpace(xrip)
-	}
-
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-
-	return ip
 }

@@ -1,22 +1,14 @@
 package middleware
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
+	"janusgate/internal/auth"
 	"janusgate/internal/ratelimit"
 )
-
-type rateLimitErrorResponse struct {
-	Error     string    `json:"error"`
-	Message   string    `json:"message"`
-	Path      string    `json:"path"`
-	Code      int       `json:"code"`
-	Timestamp time.Time `json:"timestamp"`
-}
 
 func RateLimit(limiter ratelimit.RateLimiter, limit int, window time.Duration) Middleware {
 	return func(next http.Handler) http.Handler {
@@ -26,13 +18,20 @@ func RateLimit(limiter ratelimit.RateLimiter, limit int, window time.Duration) M
 				return
 			}
 
+			var key string
 			clientIP := extractClientIP(r)
-			key := "ip:" + clientIP
+
+			if userID, ok := auth.GetUserID(r.Context()); ok && userID != "" {
+				key = "user:" + userID
+			} else {
+				key = "ip:" + clientIP
+			}
 
 			allowed, remaining, err := limiter.Allow(r.Context(), key, limit, window)
 			if err != nil {
 				slog.Error("Rate limiter error, allowing request (Fail-Open)",
-					"error", err,
+					"error", err.Error(),
+					"key", key,
 					"client_ip", clientIP,
 				)
 				next.ServeHTTP(w, r)
@@ -43,24 +42,19 @@ func RateLimit(limiter ratelimit.RateLimiter, limit int, window time.Duration) M
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 
 			if !allowed {
-				slog.Warn("Rate limit exceeded for client",
+				slog.Warn("Rate limit exceeded",
+					"key", key,
 					"client_ip", clientIP,
 					"path", r.URL.Path,
 				)
 
-				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("Retry-After", "1")
-				w.WriteHeader(http.StatusTooManyRequests)
-
-				resp := rateLimitErrorResponse{
-					Error:     "Too Many Requests",
-					Message:   "Rate limit exceeded. Please slow down and try again later.",
-					Path:      r.URL.Path,
-					Code:      http.StatusTooManyRequests,
-					Timestamp: time.Now().UTC(),
+				retryAfterSeconds := int(window.Seconds())
+				if retryAfterSeconds <= 0 {
+					retryAfterSeconds = 1
 				}
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds))
 
-				_ = json.NewEncoder(w).Encode(resp)
+				WriteJSONError(w, r, http.StatusTooManyRequests, "Rate limit exceeded. Please slow down and try again later.")
 				return
 			}
 

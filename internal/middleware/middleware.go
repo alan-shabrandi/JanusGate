@@ -1,3 +1,4 @@
+// internal/middleware/chain.go
 package middleware
 
 import "net/http"
@@ -22,8 +23,13 @@ func New(middlewares ...Middleware) ChainBuilder {
 }
 
 func (c ChainBuilder) Use(m ...Middleware) ChainBuilder {
-	c.middlewares = append(c.middlewares, m...)
-	return c
+	newMiddlewares := make([]Middleware, 0, len(c.middlewares)+len(m))
+	newMiddlewares = append(newMiddlewares, c.middlewares...)
+	newMiddlewares = append(newMiddlewares, m...)
+
+	return ChainBuilder{
+		middlewares: newMiddlewares,
+	}
 }
 
 func (c ChainBuilder) Then(h http.Handler) http.Handler {

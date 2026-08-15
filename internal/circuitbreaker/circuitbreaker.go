@@ -2,7 +2,6 @@ package circuitbreaker
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -10,26 +9,37 @@ import (
 	"github.com/sony/gobreaker"
 )
 
-var ErrCircuitOpen = errors.New("circuit breaker is open")
+var (
+	ErrCircuitOpen = errors.New("circuit breaker is open")
+	errUpstream5xx = errors.New("upstream returned 5xx status")
+)
 
-type CircuitBreaker struct {
-	cb *gobreaker.CircuitBreaker
+type Config struct {
+	Name               string
+	MaxRequests        uint32
+	Timeout            time.Duration
+	MinRequestsToTrip  uint32
+	FailureRatioToTrip float64
+}
+type Transport struct {
+	cb   *gobreaker.CircuitBreaker
+	next http.RoundTripper
 }
 
-func New(name string, maxRequests uint32, timeout time.Duration) *CircuitBreaker {
+func NewTransport(cfg Config, next http.RoundTripper) *Transport {
 	st := gobreaker.Settings{
-		Name:        name,
-		MaxRequests: maxRequests,
+		Name:        cfg.Name,
+		MaxRequests: cfg.MaxRequests,
 		Interval:    0,
-		Timeout:     timeout,
+		Timeout:     cfg.Timeout,
 
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
-			return counts.Requests >= 5 && failureRatio >= 0.6
+			return counts.Requests >= cfg.MinRequestsToTrip && failureRatio >= cfg.FailureRatioToTrip
 		},
 
 		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
-			slog.Warn("Circuit Breaker state changed",
+			slog.Warn("circuit breaker state changed",
 				"name", name,
 				"from", from.String(),
 				"to", to.String(),
@@ -37,20 +47,21 @@ func New(name string, maxRequests uint32, timeout time.Duration) *CircuitBreaker
 		},
 	}
 
-	return &CircuitBreaker{
-		cb: gobreaker.NewCircuitBreaker(st),
+	return &Transport{
+		cb:   gobreaker.NewCircuitBreaker(st),
+		next: next,
 	}
 }
 
-func (cb *CircuitBreaker) Execute(req *http.Request, next http.RoundTripper) (*http.Response, error) {
-	result, err := cb.cb.Execute(func() (interface{}, error) {
-		resp, err := next.RoundTrip(req)
+func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
+	result, err := t.cb.Execute(func() (interface{}, error) {
+		resp, err := t.next.RoundTrip(req)
 		if err != nil {
 			return nil, err
 		}
 
 		if resp.StatusCode >= http.StatusInternalServerError {
-			return resp, fmt.Errorf("upstream returned server error status: %d", resp.StatusCode)
+			return resp, errUpstream5xx
 		}
 
 		return resp, nil
@@ -60,11 +71,13 @@ func (cb *CircuitBreaker) Execute(req *http.Request, next http.RoundTripper) (*h
 		if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
 			return nil, ErrCircuitOpen
 		}
+
+		if errors.Is(err, errUpstream5xx) {
+			return result.(*http.Response), nil
+		}
+
+		return nil, err
 	}
 
-	if resp, ok := result.(*http.Response); ok {
-		return resp, nil
-	}
-
-	return nil, err
+	return result.(*http.Response), nil
 }

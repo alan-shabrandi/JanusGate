@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -9,12 +8,6 @@ import (
 	"time"
 
 	"janusgate/internal/auth"
-)
-
-type contextKey string
-
-const (
-	UserClaimsKey contextKey = "user_claims"
 )
 
 type authErrorResponse struct {
@@ -58,7 +51,7 @@ func Authenticate(tokenMgr auth.TokenManager) Middleware {
 			claims, err := tokenMgr.ValidateToken(tokenStr)
 			if err != nil {
 				slog.Warn("Invalid or expired JWT token",
-					"error", err,
+					"error", err.Error(),
 					"path", r.URL.Path,
 					"ip", extractClientIP(r),
 				)
@@ -66,18 +59,19 @@ func Authenticate(tokenMgr auth.TokenManager) Middleware {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), UserClaimsKey, claims)
+			// استفاده از پکیج auth برای ثبت در Context
+			ctx := auth.InjectClaims(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-func GetUserClaims(ctx context.Context) (*auth.Claims, bool) {
-	claims, ok := ctx.Value(UserClaimsKey).(*auth.Claims)
-	return claims, ok
-}
-
 func writeAuthError(w http.ResponseWriter, r *http.Request, message string, statusCode int) {
+	// ست کردن هدر استاندارد برای ارور 401
+	if statusCode == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="JanusGate"`)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 
@@ -90,38 +84,4 @@ func writeAuthError(w http.ResponseWriter, r *http.Request, message string, stat
 	}
 
 	_ = json.NewEncoder(w).Encode(resp)
-}
-
-func GetUserID(ctx context.Context) (string, bool) {
-	if claims, ok := GetUserClaims(ctx); ok && claims != nil {
-		return claims.UserID, true
-	}
-	return "", false
-}
-
-func GetUsername(ctx context.Context) (string, bool) {
-	if claims, ok := GetUserClaims(ctx); ok && claims != nil {
-		return claims.Username, true
-	}
-	return "", false
-}
-
-func GetUserRoles(ctx context.Context) ([]string, bool) {
-	if claims, ok := GetUserClaims(ctx); ok && claims != nil {
-		return claims.Roles, true
-	}
-	return nil, false
-}
-
-func HasRole(ctx context.Context, role string) bool {
-	roles, ok := GetUserRoles(ctx)
-	if !ok {
-		return false
-	}
-	for _, r := range roles {
-		if strings.EqualFold(r, role) {
-			return true
-		}
-	}
-	return false
 }

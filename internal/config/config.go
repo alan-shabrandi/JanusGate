@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -36,11 +37,6 @@ type AuthConfig struct {
 	TokenExpiry time.Duration `mapstructure:"token_expiry" json:"token_expiry" yaml:"token_expiry"`
 }
 
-type UpstreamConfig struct {
-	URL    string `mapstructure:"url" json:"url" yaml:"url"`
-	Weight int    `mapstructure:"weight" json:"weight" yaml:"weight"` // <-- فیلد Weight اضافه شد
-}
-
 type RouteConfig struct {
 	ID           string           `mapstructure:"id" json:"id" yaml:"id"`
 	PathPrefix   string           `mapstructure:"path_prefix" json:"path_prefix" yaml:"path_prefix"`
@@ -49,8 +45,13 @@ type RouteConfig struct {
 	StripPrefix  bool             `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
 	RequiresAuth bool             `mapstructure:"requires_auth" json:"requires_auth" yaml:"requires_auth"`
 	Timeout      time.Duration    `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
-	Retry        RetryConfig      `mapstructure:"retry" json:"retry" yaml:"retry"` // <-- تنظیمات جدید
+	Retry        RetryConfig      `mapstructure:"retry" json:"retry" yaml:"retry"`
 	Upstreams    []UpstreamConfig `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`
+}
+type UpstreamConfig struct {
+	ID     string `mapstructure:"id" json:"id" yaml:"id"`
+	URL    string `mapstructure:"url" json:"url" yaml:"url"`
+	Weight int    `mapstructure:"weight" json:"weight" yaml:"weight"`
 }
 
 type RetryConfig struct {
@@ -58,24 +59,11 @@ type RetryConfig struct {
 	InitialInterval time.Duration `mapstructure:"initial_interval" json:"initial_interval" yaml:"initial_interval"`
 	MaxInterval     time.Duration `mapstructure:"max_interval" json:"max_interval" yaml:"max_interval"`
 }
-
-type RateLimitConfig struct {
-	Enabled           bool `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
-	RequestsPerSecond int  `mapstructure:"requests_per_second" json:"requests_per_second" yaml:"requests_per_second"`
+type Manager struct {
+	v *viper.Viper
 }
 
-type CircuitBreakerConfig struct {
-	Enabled     bool `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
-	MaxRequests int  `mapstructure:"max_requests" json:"max_requests" yaml:"max_requests"`
-}
-
-type UpstreamNode struct {
-	ID     string `mapstructure:"id" json:"id" yaml:"id"`
-	URL    string `mapstructure:"url" json:"url" yaml:"url"`
-	Weight int    `mapstructure:"weight" json:"weight" yaml:"weight"`
-}
-
-func LoadConfig(configPath string) (*Config, *viper.Viper, error) {
+func Load(configPath string) (*Config, *Manager, error) {
 	v := viper.New()
 
 	if configPath != "" {
@@ -91,7 +79,7 @@ func LoadConfig(configPath string) (*Config, *viper.Viper, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	setDefaults(v)
+	setStaticDefaults(v)
 
 	if err := v.ReadInConfig(); err != nil {
 		var configFileNotFoundError viper.ConfigFileNotFoundError
@@ -105,26 +93,39 @@ func LoadConfig(configPath string) (*Config, *viper.Viper, error) {
 		return nil, nil, fmt.Errorf("unable to decode config into struct: %w", err)
 	}
 
+	applyDynamicDefaults(&cfg)
+
 	if err := validateConfig(&cfg); err != nil {
 		return nil, nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	return &cfg, v, nil
+	return &cfg, &Manager{v: v}, nil
 }
 
-func WatchChanges(v *viper.Viper, onChange func(cfg *Config)) {
-	v.OnConfigChange(func(e fsnotify.Event) {
+func (m *Manager) Watch(onChange func(cfg *Config)) {
+	m.v.OnConfigChange(func(e fsnotify.Event) {
+		slog.Info("Configuration file change detected", "file", e.Name)
+
 		var newCfg Config
-		if err := v.Unmarshal(&newCfg); err == nil {
-			if err := validateConfig(&newCfg); err == nil {
-				onChange(&newCfg)
-			}
+		if err := m.v.Unmarshal(&newCfg); err != nil {
+			slog.Error("Failed to unmarshal new config during hot-reload", "error", err)
+			return
 		}
+
+		applyDynamicDefaults(&newCfg)
+
+		if err := validateConfig(&newCfg); err != nil {
+			slog.Error("Invalid configuration detected during hot-reload. Changes ignored.", "error", err)
+			return
+		}
+
+		slog.Info("Configuration successfully reloaded")
+		onChange(&newCfg)
 	})
-	v.WatchConfig()
+	m.v.WatchConfig()
 }
 
-func setDefaults(v *viper.Viper) {
+func setStaticDefaults(v *viper.Viper) {
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.read_timeout", 5*time.Second)
 	v.SetDefault("server.write_timeout", 10*time.Second)
@@ -134,6 +135,27 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.db", 0)
 	v.SetDefault("auth.jwt_secret", "janusgate-default-secret-key-change-in-production")
 	v.SetDefault("auth.token_expiry", 15*time.Minute)
+}
+
+func applyDynamicDefaults(cfg *Config) {
+	for i := range cfg.Routes {
+		if cfg.Routes[i].Timeout <= 0 {
+			cfg.Routes[i].Timeout = 5 * time.Second
+		}
+		if cfg.Routes[i].Retry.Attempts > 0 {
+			if cfg.Routes[i].Retry.InitialInterval <= 0 {
+				cfg.Routes[i].Retry.InitialInterval = 100 * time.Millisecond
+			}
+			if cfg.Routes[i].Retry.MaxInterval <= 0 {
+				cfg.Routes[i].Retry.MaxInterval = 2 * time.Second
+			}
+		}
+		for j := range cfg.Routes[i].Upstreams {
+			if cfg.Routes[i].Upstreams[j].Weight <= 0 {
+				cfg.Routes[i].Upstreams[j].Weight = 1
+			}
+		}
+	}
 }
 
 func validateConfig(cfg *Config) error {
@@ -158,31 +180,12 @@ func validateConfig(cfg *Config) error {
 			return fmt.Errorf("route [%d] (%s): must have at least one upstream", i, route.ID)
 		}
 
-		if route.Timeout <= 0 {
-			cfg.Routes[i].Timeout = 5 * time.Second
-		}
-
-		if route.Retry.Attempts < 0 {
-			cfg.Routes[i].Retry.Attempts = 0
-		}
-		if route.Retry.Attempts > 0 {
-			if route.Retry.InitialInterval <= 0 {
-				cfg.Routes[i].Retry.InitialInterval = 100 * time.Millisecond
-			}
-			if route.Retry.MaxInterval <= 0 {
-				cfg.Routes[i].Retry.MaxInterval = 2 * time.Second
-			}
-		}
-
 		for j, upstream := range route.Upstreams {
 			if upstream.URL == "" {
 				return fmt.Errorf("upstream [%d] in route (%s): URL cannot be empty", j, route.ID)
 			}
 			if _, err := url.ParseRequestURI(upstream.URL); err != nil {
 				return fmt.Errorf("upstream [%d] in route (%s): invalid URL format '%s'", j, route.ID, upstream.URL)
-			}
-			if upstream.Weight <= 0 {
-				cfg.Routes[i].Upstreams[j].Weight = 1
 			}
 		}
 	}
