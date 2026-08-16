@@ -14,6 +14,7 @@ import (
 	"janusgate/internal/auth"
 	"janusgate/internal/circuitbreaker"
 	"janusgate/internal/config"
+	"janusgate/internal/loadbalance"
 	"janusgate/internal/middleware"
 	"janusgate/internal/proxy"
 	"janusgate/internal/upstream"
@@ -102,7 +103,7 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 			upstreamProxies[u.URL] = revProxy
 		}
 
-		var rrIndex uint64
+		balancer := loadbalance.NewBalancer(route.LBStrategy)
 		routeID := route.ID
 
 		var dynamicHandler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -121,14 +122,29 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 				return
 			}
 
-			idx := atomic.AddUint64(&rrIndex, 1) - 1
-			selectedServer := healthyServers[idx%uint64(len(healthyServers))]
+			var selectedServer *upstream.Server
+			var err error
+
+			if keyedBalancer, ok := balancer.(loadbalance.KeyedBalancer); ok {
+				clientIP := getClientIP(req)
+				selectedServer, err = keyedBalancer.NextWithKey(healthyServers, clientIP)
+			} else {
+				selectedServer, err = balancer.Next(healthyServers)
+			}
+
+			if err != nil || selectedServer == nil {
+				writeJSONError(w, http.StatusServiceUnavailable, "Service Unavailable", "Failed to select healthy upstream server", req.URL.Path)
+				return
+			}
 
 			handler, ok := upstreamProxies[selectedServer.URL]
 			if !ok {
 				writeJSONError(w, http.StatusBadGateway, "Bad Gateway", "Selected upstream handler not found", req.URL.Path)
 				return
 			}
+
+			selectedServer.ActiveConns.Add(1)
+			defer selectedServer.ActiveConns.Add(-1)
 
 			handler.ServeHTTP(w, req)
 		})
@@ -145,10 +161,10 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 				slog.Error("Route requires authentication but TokenManager is nil", "route_id", route.ID)
 			} else {
 				pipeline = pipeline.Use(middleware.Authenticate(r.tokenMgr))
-				slog.Info("Route loaded [PRIVATE]", "id", route.ID, "path", route.PathPrefix, "upstreams_count", len(route.Upstreams))
+				slog.Info("Route loaded [PRIVATE]", "id", route.ID, "path", route.PathPrefix, "upstreams_count", len(route.Upstreams), "lb_strategy", route.LBStrategy)
 			}
 		} else {
-			slog.Info("Route loaded [PUBLIC]", "id", route.ID, "path", route.PathPrefix, "upstreams_count", len(route.Upstreams))
+			slog.Info("Route loaded [PUBLIC]", "id", route.ID, "path", route.PathPrefix, "upstreams_count", len(route.Upstreams), "lb_strategy", route.LBStrategy)
 		}
 
 		finalHandler := pipeline.Then(dynamicHandler)
@@ -220,6 +236,17 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	writeJSONError(w, http.StatusNotFound, "Not Found", "No matching route found for the requested path", cleanPath)
+}
+
+func getClientIP(req *http.Request) string {
+	if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	if xreal := req.Header.Get("X-Real-IP"); xreal != "" {
+		return strings.TrimSpace(xreal)
+	}
+	return req.RemoteAddr
 }
 
 func isMethodAllowed(allowedMethods []string, reqMethod string) bool {
