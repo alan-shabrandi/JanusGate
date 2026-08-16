@@ -23,12 +23,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg, _, err := config.Load("config.yaml")
+	cfg, mgr, err := config.Load("config.yaml")
 	if err != nil {
 		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
 
+	holder := config.NewHolder(cfg)
 	registry := upstream.NewRegistry()
 
 	healthChecker := health.NewChecker(registry, 10*time.Second)
@@ -48,7 +49,26 @@ func main() {
 	}
 	defer redisLimiter.Close()
 
-	rt := router.NewRouter(cfg.Routes, jwtMgr)
+	rt := router.NewRouter(cfg.Routes, jwtMgr, registry)
+
+	watcher, err := config.NewBackgroundWatcher("config.yaml", mgr, holder)
+	if err != nil {
+		slog.Warn("Failed to initialize background config watcher", "error", err)
+	} else {
+		err = watcher.Start(ctx, func(newCfg *config.Config) {
+			if err := rt.LoadRoutes(newCfg.Routes); err != nil {
+				slog.Error("Failed to apply routes on hot reload", "error", err)
+				return
+			}
+			healthChecker.RegisterRoutesUpstreams(newCfg.Routes)
+			slog.Info("Routes and HealthChecker updated automatically via file watcher")
+		})
+		if err != nil {
+			slog.Error("Failed to start background watcher", "error", err)
+		} else {
+			defer watcher.Stop()
+		}
+	}
 
 	globalChain := middleware.New(
 		middleware.Recovery,
@@ -84,19 +104,21 @@ func main() {
 		switch sig {
 		case syscall.SIGHUP:
 			slog.Info("SIGHUP received, reloading configuration...")
-			newCfg, _, err := config.Load("config.yaml")
+			newCfg, err := mgr.Reload("config.yaml")
 			if err != nil {
-				slog.Error("Failed to reload config (keeping old config)", "error", err)
+				slog.Error("Failed to reload config on SIGHUP (keeping old config)", "error", err)
 				continue
 			}
 
+			holder.Update(newCfg)
+
 			if err := rt.LoadRoutes(newCfg.Routes); err != nil {
-				slog.Error("Failed to apply new routes", "error", err)
+				slog.Error("Failed to apply new routes on SIGHUP", "error", err)
 				continue
 			}
 
 			healthChecker.RegisterRoutesUpstreams(newCfg.Routes)
-			slog.Info("Configuration reloaded successfully")
+			slog.Info("Configuration reloaded successfully via SIGHUP")
 
 		case syscall.SIGINT, syscall.SIGTERM:
 			slog.Info("Shutdown signal received. Shutting down JanusGate gracefully...")
