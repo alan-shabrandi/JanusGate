@@ -16,12 +16,13 @@ type OnConfigChangeFunc func(newCfg *Config)
 type BackgroundWatcher struct {
 	configPath string
 	manager    *Manager
+	holder     *Holder
 	watcher    *fsnotify.Watcher
 	mu         sync.Mutex
 	stopChan   chan struct{}
 }
 
-func NewBackgroundWatcher(configPath string, manager *Manager) (*BackgroundWatcher, error) {
+func NewBackgroundWatcher(configPath string, manager *Manager, holder *Holder) (*BackgroundWatcher, error) {
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve absolute config path: %w", err)
@@ -35,6 +36,7 @@ func NewBackgroundWatcher(configPath string, manager *Manager) (*BackgroundWatch
 	return &BackgroundWatcher{
 		configPath: absPath,
 		manager:    manager,
+		holder:     holder,
 		watcher:    watcher,
 		stopChan:   make(chan struct{}),
 	}, nil
@@ -89,6 +91,12 @@ func (bw *BackgroundWatcher) watchLoop(ctx context.Context, onChange OnConfigCha
 						slog.Error("Failed to re-parse updated config file (retaining previous valid config)", "error", err)
 						return
 					}
+
+					if bw.holder != nil {
+						bw.holder.Update(newCfg)
+					}
+
+					slog.Info("Configuration atomically swapped in memory")
 
 					if onChange != nil {
 						onChange(newCfg)
