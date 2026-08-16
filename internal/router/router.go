@@ -137,7 +137,6 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	pathMatched := false
 	longestPrefix := -1
 
-	// ۳. پیدا کردن مسیر
 	for _, entry := range currentRoutes {
 		if entry.config.MatchType == "exact" && entry.config.PathPrefix == cleanPath {
 			pathMatched = true
