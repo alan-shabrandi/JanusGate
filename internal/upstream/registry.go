@@ -7,17 +7,19 @@ import (
 )
 
 type Server struct {
-	URL       string
-	Weight    int
-	IsHealthy atomic.Bool
-	LastCheck atomic.Int64
+	URL         string
+	Weight      int
+	IsHealthy   atomic.Bool
+	LastCheck   atomic.Int64
+	ActiveConns atomic.Int64
 }
 
 type ServerSnapshot struct {
-	URL       string    `json:"url"`
-	Weight    int       `json:"weight"`
-	IsHealthy bool      `json:"is_healthy"`
-	LastCheck time.Time `json:"last_check"`
+	URL         string    `json:"url"`
+	Weight      int       `json:"weight"`
+	IsHealthy   bool      `json:"is_healthy"`
+	LastCheck   time.Time `json:"last_check"`
+	ActiveConns int64     `json:"active_conns"`
 }
 
 type Registry struct {
@@ -103,10 +105,11 @@ func (r *Registry) GetAllStatuses() map[string]ServerSnapshot {
 	snapshot := make(map[string]ServerSnapshot, len(r.servers))
 	for url, server := range r.servers {
 		snapshot[url] = ServerSnapshot{
-			URL:       server.URL,
-			Weight:    server.Weight,
-			IsHealthy: server.IsHealthy.Load(),
-			LastCheck: time.Unix(0, server.LastCheck.Load()),
+			URL:         server.URL,
+			Weight:      server.Weight,
+			IsHealthy:   server.IsHealthy.Load(),
+			LastCheck:   time.Unix(0, server.LastCheck.Load()),
+			ActiveConns: server.ActiveConns.Load(),
 		}
 	}
 	return snapshot
