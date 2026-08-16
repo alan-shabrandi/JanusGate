@@ -1,4 +1,3 @@
-// internal/middleware/chain.go
 package middleware
 
 import "net/http"
@@ -34,10 +33,17 @@ func (c ChainBuilder) Use(m ...Middleware) ChainBuilder {
 
 func (c ChainBuilder) Then(h http.Handler) http.Handler {
 	if h == nil {
-		h = http.DefaultServeMux
+		h = http.NotFoundHandler()
 	}
 	for i := len(c.middlewares) - 1; i >= 0; i-- {
 		h = c.middlewares[i](h)
 	}
 	return h
+}
+
+func (c ChainBuilder) ThenFunc(fn http.HandlerFunc) http.Handler {
+	if fn == nil {
+		return c.Then(nil)
+	}
+	return c.Then(fn)
 }

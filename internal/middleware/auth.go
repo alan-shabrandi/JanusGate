@@ -19,14 +19,12 @@ type authErrorResponse struct {
 }
 
 func Authenticate(tokenMgr auth.TokenManager) Middleware {
+	if tokenMgr == nil {
+		panic("Authenticate middleware initialized with nil TokenManager")
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if tokenMgr == nil {
-				slog.Error("Auth middleware called but TokenManager is nil")
-				writeAuthError(w, r, "Internal authentication error", http.StatusInternalServerError)
-				return
-			}
-
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
 				slog.Warn("Missing Authorization header", "path", r.URL.Path, "ip", extractClientIP(r))
@@ -60,7 +58,17 @@ func Authenticate(tokenMgr auth.TokenManager) Middleware {
 			}
 
 			ctx := auth.InjectClaims(r.Context(), claims)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			r = r.WithContext(ctx)
+
+			r.Header.Del("Authorization")
+
+			r.Header.Set("X-User-Id", claims.UserID)
+			r.Header.Set("X-User-Name", claims.Username)
+			if len(claims.Roles) > 0 {
+				r.Header.Set("X-User-Roles", strings.Join(claims.Roles, ","))
+			}
+
+			next.ServeHTTP(w, r)
 		})
 	}
 }

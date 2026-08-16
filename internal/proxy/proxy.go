@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -16,7 +17,7 @@ import (
 	"janusgate/internal/config"
 )
 
-func NewProxy(targetURL string, cb *circuitbreaker.Transport, retryCfg config.RetryConfig) (http.Handler, error) {
+func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.RetryConfig) (http.Handler, error) {
 	target, err := url.Parse(targetURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid target URL: %w", err)
@@ -30,58 +31,61 @@ func NewProxy(targetURL string, cb *circuitbreaker.Transport, retryCfg config.Re
 		req.Host = target.Host
 	}
 
-	var transport http.RoundTripper = http.DefaultTransport
+	var baseTransport http.RoundTripper = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          1000,
+		MaxIdleConnsPerHost:   200,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	chainedTransport := baseTransport
 
 	if retryCfg.Attempts > 0 {
-		transport = NewRetryTransport(transport, retryCfg)
+		chainedTransport = NewRetryTransport(chainedTransport, retryCfg)
 	}
 
-	if cb != nil {
-		transport = cb
+	if cbCfg != nil {
+		chainedTransport = circuitbreaker.NewTransport(*cbCfg, chainedTransport)
 	}
 
-	proxy.Transport = transport
+	proxy.Transport = chainedTransport
 
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		w.Header().Set("Content-Type", "application/json")
 
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(r.Context().Err(), context.DeadlineExceeded) {
-			w.WriteHeader(http.StatusGatewayTimeout)
-			_ = json.NewEncoder(w).Encode(ErrorResponse{
-				Error:     "Gateway Timeout",
-				Message:   "Upstream service failed to respond within configured timeout.",
-				Path:      r.URL.Path,
-				Code:      http.StatusGatewayTimeout,
-				Timestamp: time.Now().UTC(),
-			})
+			writeError(w, r, http.StatusGatewayTimeout, "Gateway Timeout", "Upstream service failed to respond within configured timeout.")
 			return
 		}
 
 		if errors.Is(err, circuitbreaker.ErrCircuitOpen) {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(ErrorResponse{
-				Error:     "Service Unavailable",
-				Message:   "Upstream service is temporarily unavailable due to high failure rate (Circuit Breaker Open).",
-				Path:      r.URL.Path,
-				Code:      http.StatusServiceUnavailable,
-				Timestamp: time.Now().UTC(),
-			})
+			writeError(w, r, http.StatusServiceUnavailable, "Service Unavailable", "Upstream service is temporarily unavailable due to high failure rate.")
 			return
 		}
 
 		slog.Error("Upstream connection failed", "target", targetURL, "path", r.URL.Path, "error", err)
-
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(ErrorResponse{
-			Error:     "Bad Gateway",
-			Message:   "Failed to reach upstream server.",
-			Path:      r.URL.Path,
-			Code:      http.StatusBadGateway,
-			Timestamp: time.Now().UTC(),
-		})
+		writeError(w, r, http.StatusBadGateway, "Bad Gateway", "Failed to reach upstream server.")
 	}
 
 	return proxy, nil
+}
+
+func writeError(w http.ResponseWriter, r *http.Request, code int, errType, message string) {
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(ErrorResponse{
+		Error:     errType,
+		Message:   message,
+		Path:      r.URL.Path,
+		Code:      code,
+		Timestamp: time.Now().UTC(),
+	})
 }
 
 func StripPrefix(prefix string, h http.Handler) http.Handler {

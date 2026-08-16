@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"janusgate/internal/auth"
@@ -41,8 +42,7 @@ type routeEntry struct {
 }
 
 type memoryRouter struct {
-	mu       sync.RWMutex
-	routes   []routeEntry
+	routes   atomic.Pointer[[]routeEntry]
 	tokenMgr auth.TokenManager
 }
 
@@ -62,7 +62,6 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 	newRoutes := make([]routeEntry, 0, len(routes))
 
 	for _, route := range routes {
-
 		if len(route.Upstreams) == 0 {
 			slog.Warn("Route has no upstreams configured, skipping...", "route_id", route.ID)
 			continue
@@ -77,57 +76,70 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 		}
 
 		primaryUpstream := route.Upstreams[0].URL
-		cb := circuitbreaker.New(route.ID, 5, 10*time.Second)
+		cbConfig := circuitbreaker.Config{
+			Name:               route.ID,
+			MaxRequests:        1,
+			Timeout:            10 * time.Second,
+			MinRequestsToTrip:  5,
+			FailureRatioToTrip: 0.5,
+		}
 
-		revProxy, err := proxy.NewProxy(primaryUpstream, cb, route.Retry)
+		revProxy, err := proxy.NewProxy(primaryUpstream, &cbConfig, route.Retry)
 		if err != nil {
 			return fmt.Errorf("failed to create proxy for route %s: %w", route.ID, err)
 		}
 
-		var handler http.Handler = revProxy
+		pipeline := middleware.New()
 
-		handler = middleware.Timeout(route.Timeout)(handler)
-
-		if route.StripPrefix {
-			handler = proxy.StripPrefix(route.PathPrefix, handler)
-		}
+		pipeline = pipeline.Use(middleware.Timeout(route.Timeout))
 
 		if route.RequiresAuth {
 			if r.tokenMgr == nil {
 				slog.Error("Route requires authentication but TokenManager is nil", "route_id", route.ID)
 			} else {
-				handler = middleware.Authenticate(r.tokenMgr)(handler)
+				pipeline = pipeline.Use(middleware.Authenticate(r.tokenMgr))
 				slog.Info("Route loaded [PRIVATE]", "id", route.ID, "path", route.PathPrefix, "target", primaryUpstream)
 			}
 		} else {
 			slog.Info("Route loaded [PUBLIC]", "id", route.ID, "path", route.PathPrefix, "target", primaryUpstream)
 		}
 
+		var handler http.Handler = revProxy
+		if route.StripPrefix {
+			handler = proxy.StripPrefix(route.PathPrefix, handler)
+		}
+
+		finalHandler := pipeline.Then(handler)
+
 		newRoutes = append(newRoutes, routeEntry{
 			config:  route,
-			handler: handler,
+			handler: finalHandler,
 		})
 	}
 
-	r.mu.Lock()
-	r.routes = newRoutes
-	r.mu.Unlock()
+	r.routes.Store(&newRoutes)
 
 	return nil
 }
 
 func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	routesPtr := r.routes.Load()
+	if routesPtr == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "Service Unavailable", "Gateway is initializing", req.URL.Path)
+		return
+	}
+	currentRoutes := *routesPtr
 
-	path := req.URL.Path
+	cleanPath := path.Clean(req.URL.Path)
+
 	var matchedHandler http.Handler
 	methodMatched := false
 	pathMatched := false
 	longestPrefix := -1
 
-	for _, entry := range r.routes {
-		if entry.config.MatchType == "exact" && entry.config.PathPrefix == path {
+	// ۳. پیدا کردن مسیر
+	for _, entry := range currentRoutes {
+		if entry.config.MatchType == "exact" && entry.config.PathPrefix == cleanPath {
 			pathMatched = true
 			if isMethodAllowed(entry.config.Methods, req.Method) {
 				matchedHandler = entry.handler
@@ -138,15 +150,17 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if matchedHandler == nil {
-		for _, entry := range r.routes {
+		for _, entry := range currentRoutes {
 			if entry.config.MatchType == "prefix" {
 				prefix := entry.config.PathPrefix
-				if strings.HasPrefix(path, prefix) && len(prefix) > longestPrefix {
-					pathMatched = true
-					if isMethodAllowed(entry.config.Methods, req.Method) {
-						longestPrefix = len(prefix)
-						matchedHandler = entry.handler
-						methodMatched = true
+				if strings.HasPrefix(cleanPath, prefix) && (len(cleanPath) == len(prefix) || cleanPath[len(prefix)] == '/' || prefix[len(prefix)-1] == '/') {
+					if len(prefix) > longestPrefix {
+						pathMatched = true
+						if isMethodAllowed(entry.config.Methods, req.Method) {
+							longestPrefix = len(prefix)
+							matchedHandler = entry.handler
+							methodMatched = true
+						}
 					}
 				}
 			}
@@ -160,12 +174,11 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	if pathMatched && !methodMatched {
 		writeJSONError(w, http.StatusMethodNotAllowed, "Method Not Allowed",
-			fmt.Sprintf("HTTP method %s is not allowed for this route", req.Method), path)
+			fmt.Sprintf("HTTP method %s is not allowed for this route", req.Method), cleanPath)
 		return
 	}
 
-	writeJSONError(w, http.StatusNotFound, "Not Found",
-		"No matching route found for the requested path", path)
+	writeJSONError(w, http.StatusNotFound, "Not Found", "No matching route found for the requested path", cleanPath)
 }
 
 func isMethodAllowed(allowedMethods []string, reqMethod string) bool {
