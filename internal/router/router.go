@@ -16,6 +16,7 @@ import (
 	"janusgate/internal/config"
 	"janusgate/internal/middleware"
 	"janusgate/internal/proxy"
+	"janusgate/internal/upstream"
 )
 
 var (
@@ -44,11 +45,13 @@ type routeEntry struct {
 type memoryRouter struct {
 	routes   atomic.Pointer[[]routeEntry]
 	tokenMgr auth.TokenManager
+	registry *upstream.Registry
 }
 
-func NewRouter(routes []config.RouteConfig, tokenMgr auth.TokenManager) Router {
+func NewRouter(routes []config.RouteConfig, tokenMgr auth.TokenManager, reg *upstream.Registry) Router {
 	r := &memoryRouter{
 		tokenMgr: tokenMgr,
+		registry: reg,
 	}
 
 	if err := r.LoadRoutes(routes); err != nil {
@@ -76,6 +79,13 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 		}
 
 		primaryUpstream := route.Upstreams[0].URL
+
+		if r.registry != nil {
+			for _, u := range route.Upstreams {
+				r.registry.RegisterServer(route.ID, u.URL, u.Weight)
+			}
+		}
+
 		cbConfig := circuitbreaker.Config{
 			Name:               route.ID,
 			MaxRequests:        1,
@@ -84,7 +94,7 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 			FailureRatioToTrip: 0.5,
 		}
 
-		revProxy, err := proxy.NewProxy(primaryUpstream, &cbConfig, route.Retry)
+		revProxy, err := proxy.NewProxy(primaryUpstream, &cbConfig, route.Retry, r.registry)
 		if err != nil {
 			return fmt.Errorf("failed to create proxy for route %s: %w", route.ID, err)
 		}

@@ -15,9 +15,10 @@ import (
 
 	"janusgate/internal/circuitbreaker"
 	"janusgate/internal/config"
+	"janusgate/internal/upstream"
 )
 
-func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.RetryConfig) (http.Handler, error) {
+func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.RetryConfig, reg *upstream.Registry) (http.Handler, error) {
 	target, err := url.Parse(targetURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid target URL: %w", err)
@@ -47,6 +48,10 @@ func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.Re
 
 	chainedTransport := baseTransport
 
+	if reg != nil {
+		chainedTransport = NewPassiveHealthTransport(chainedTransport, targetURL, reg)
+	}
+
 	if retryCfg.Attempts > 0 {
 		chainedTransport = NewRetryTransport(chainedTransport, retryCfg)
 	}
@@ -59,6 +64,10 @@ func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.Re
 
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		w.Header().Set("Content-Type", "application/json")
+
+		if reg != nil {
+			reg.SetHealth(targetURL, false)
+		}
 
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(r.Context().Err(), context.DeadlineExceeded) {
 			writeError(w, r, http.StatusGatewayTimeout, "Gateway Timeout", "Upstream service failed to respond within configured timeout.")
