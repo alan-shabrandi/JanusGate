@@ -45,9 +45,11 @@ type RouteConfig struct {
 	StripPrefix  bool             `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
 	RequiresAuth bool             `mapstructure:"requires_auth" json:"requires_auth" yaml:"requires_auth"`
 	Timeout      time.Duration    `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
+	LBStrategy   string           `mapstructure:"lb_strategy" json:"lb_strategy" yaml:"lb_strategy"`
 	Retry        RetryConfig      `mapstructure:"retry" json:"retry" yaml:"retry"`
 	Upstreams    []UpstreamConfig `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`
 }
+
 type UpstreamConfig struct {
 	ID     string `mapstructure:"id" json:"id" yaml:"id"`
 	URL    string `mapstructure:"url" json:"url" yaml:"url"`
@@ -59,6 +61,7 @@ type RetryConfig struct {
 	InitialInterval time.Duration `mapstructure:"initial_interval" json:"initial_interval" yaml:"initial_interval"`
 	MaxInterval     time.Duration `mapstructure:"max_interval" json:"max_interval" yaml:"max_interval"`
 }
+
 type Manager struct {
 	v *viper.Viper
 }
@@ -139,6 +142,9 @@ func setStaticDefaults(v *viper.Viper) {
 
 func applyDynamicDefaults(cfg *Config) {
 	for i := range cfg.Routes {
+		if cfg.Routes[i].LBStrategy == "" {
+			cfg.Routes[i].LBStrategy = "round_robin"
+		}
 		if cfg.Routes[i].Timeout <= 0 {
 			cfg.Routes[i].Timeout = 5 * time.Second
 		}
