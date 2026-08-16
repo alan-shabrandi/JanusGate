@@ -176,6 +176,7 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 	}
 
 	r.routes.Store(&newRoutes)
+	slog.Info("Router state atomically updated with new routing table and load balancers", "total_routes", len(newRoutes))
 
 	return nil
 }
