@@ -2,10 +2,17 @@ package upstream
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type Server struct {
+	URL       string
+	Weight    int
+	IsHealthy atomic.Bool
+	LastCheck atomic.Int64
+}
+type ServerSnapshot struct {
 	URL       string    `json:"url"`
 	Weight    int       `json:"weight"`
 	IsHealthy bool      `json:"is_healthy"`
@@ -15,13 +22,13 @@ type Server struct {
 type Registry struct {
 	mu         sync.RWMutex
 	servers    map[string]*Server
-	routePools map[string][]string
+	routePools map[string][]*Server
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
 		servers:    make(map[string]*Server),
-		routePools: make(map[string][]string),
+		routePools: make(map[string][]*Server),
 	}
 }
 
@@ -33,65 +40,59 @@ func (r *Registry) RegisterServer(routeID, targetURL string, weight int) {
 		weight = 1
 	}
 
-	if _, exists := r.servers[targetURL]; !exists {
-		r.servers[targetURL] = &Server{
-			URL:       targetURL,
-			Weight:    weight,
-			IsHealthy: true,
-			LastCheck: time.Now(),
+	srv, exists := r.servers[targetURL]
+	if !exists {
+		srv = &Server{
+			URL:    targetURL,
+			Weight: weight,
+		}
+		srv.IsHealthy.Store(true)
+		srv.LastCheck.Store(time.Now().UnixNano())
+		r.servers[targetURL] = srv
+	}
+
+	pool := r.routePools[routeID]
+	for _, existing := range pool {
+		if existing.URL == targetURL {
+			return
 		}
 	}
 
-	r.routePools[routeID] = append(r.routePools[routeID], targetURL)
+	newPool := make([]*Server, len(pool), len(pool)+1)
+	copy(newPool, pool)
+	newPool = append(newPool, srv)
+	r.routePools[routeID] = newPool
 }
 
 func (r *Registry) SetHealth(targetURL string, isHealthy bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	server, exists := r.servers[targetURL]
+	r.mu.RUnlock()
 
-	if server, exists := r.servers[targetURL]; exists {
-		server.IsHealthy = isHealthy
-		server.LastCheck = time.Now()
+	if exists {
+		server.IsHealthy.Store(isHealthy)
+		server.LastCheck.Store(time.Now().UnixNano())
 	}
 }
 
-func (r *Registry) IsHealthy(targetURL string) bool {
+func (r *Registry) GetServers(routeID string) []*Server {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	if server, exists := r.servers[targetURL]; exists {
-		return server.IsHealthy
-	}
-	return false
+	return r.routePools[routeID]
 }
 
-func (r *Registry) GetHealthyServers(routeID string) []*Server {
+func (r *Registry) GetAllStatuses() map[string]ServerSnapshot {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	urls, exists := r.routePools[routeID]
-	if !exists {
-		return nil
-	}
-
-	healthy := make([]*Server, 0, len(urls))
-	for _, url := range urls {
-		if server, ok := r.servers[url]; ok && server.IsHealthy {
-			srvCopy := *server
-			healthy = append(healthy, &srvCopy)
-		}
-	}
-
-	return healthy
-}
-
-func (r *Registry) GetAllStatuses() map[string]Server {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	snapshot := make(map[string]Server, len(r.servers))
+	snapshot := make(map[string]ServerSnapshot, len(r.servers))
 	for url, server := range r.servers {
-		snapshot[url] = *server
+		snapshot[url] = ServerSnapshot{
+			URL:       server.URL,
+			Weight:    server.Weight,
+			IsHealthy: server.IsHealthy.Load(),
+			LastCheck: time.Unix(0, server.LastCheck.Load()),
+		}
 	}
 	return snapshot
 }

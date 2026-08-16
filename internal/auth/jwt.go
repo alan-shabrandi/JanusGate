@@ -3,14 +3,20 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
+type TokenValidator interface {
+	ValidateToken(tokenStr string) (Claims, error)
+}
+
 type jwtManager struct {
 	secretKey []byte
 	issuer    string
+	parser    *jwt.Parser
 }
 
 func NewJWTManager(secretKey, issuer string) (*jwtManager, error) {
@@ -25,6 +31,11 @@ func NewJWTManager(secretKey, issuer string) (*jwtManager, error) {
 	return &jwtManager{
 		secretKey: []byte(secretKey),
 		issuer:    issuer,
+		parser: jwt.NewParser(
+			jwt.WithValidMethods([]string{"HS256"}),
+			jwt.WithIssuer(issuer),
+			jwt.WithExpirationRequired(),
+		),
 	}, nil
 }
 
@@ -39,6 +50,7 @@ func (m *jwtManager) GenerateToken(userID, username string, roles []string, dura
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    m.issuer,
+			// ID: uuid.NewString(),
 		},
 	}
 
@@ -51,25 +63,21 @@ func (m *jwtManager) GenerateToken(userID, username string, roles []string, dura
 	return signedToken, nil
 }
 
-func (m *jwtManager) ValidateToken(tokenStr string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(
-		tokenStr,
-		&Claims{},
-		func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return m.secretKey, nil
-		},
-	)
+func (m *jwtManager) ValidateToken(tokenStr string) (Claims, error) {
+	var claims Claims
+
+	token, err := m.parser.ParseWithClaims(tokenStr, &claims, func(token *jwt.Token) (interface{}, error) {
+		return m.secretKey, nil
+	})
 
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidToken, err.Error())
+		slog.Warn("JWT validation failed", "error", err.Error())
+		return Claims{}, ErrInvalidToken
 	}
 
-	claims, ok := token.Claims.(*Claims)
-	if !ok || !token.Valid {
-		return nil, ErrInvalidToken
+	if !token.Valid {
+		slog.Warn("JWT parsed but explicitly marked invalid")
+		return Claims{}, ErrInvalidToken
 	}
 
 	return claims, nil

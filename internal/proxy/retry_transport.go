@@ -1,12 +1,9 @@
 package proxy
 
 import (
-	"bytes"
 	"errors"
-	"fmt"
-	"io"
 	"log/slog"
-	"math"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -34,41 +31,41 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.base.RoundTrip(req)
 	}
 
-	var bodyBytes []byte
-	if req.Body != nil && req.Body != http.NoBody {
-		var err error
-		bodyBytes, err = io.ReadAll(req.Body)
-		_ = req.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read request body for retry: %w", err)
-		}
+	if req.Body != nil && req.GetBody == nil {
+		return t.base.RoundTrip(req)
 	}
 
 	var resp *http.Response
 	var err error
 
 	for attempt := 0; attempt <= t.config.Attempts; attempt++ {
-		if bodyBytes != nil {
-			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		ctx := req.Context()
+		reqClone := req.Clone(ctx)
+
+		if reqClone.Body != nil && req.GetBody != nil {
+			reqClone.Body, err = req.GetBody()
+			if err != nil {
+				return nil, err
+			}
 		}
 
-		resp, err = t.base.RoundTrip(req)
+		resp, err = t.base.RoundTrip(reqClone)
 
-		shouldRetry := t.isRetryable(resp, err)
+		shouldRetry := t.isRetryable(reqClone.Method, resp, err)
 
 		if !shouldRetry || attempt == t.config.Attempts {
 			break
 		}
 
 		if resp != nil && resp.Body != nil {
-			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
 		}
 
 		backoffDuration := t.calculateBackoff(attempt)
 
-		slog.Warn("Retrying request to upstream",
+		slog.Warn("retrying request to upstream",
 			"path", req.URL.Path,
+			"method", req.Method,
 			"attempt", attempt+1,
 			"max_attempts", t.config.Attempts,
 			"backoff", backoffDuration.String(),
@@ -76,8 +73,8 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		)
 
 		select {
-		case <-req.Context().Done():
-			return nil, req.Context().Err()
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		case <-time.After(backoffDuration):
 		}
 	}
@@ -85,8 +82,12 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-func (t *RetryTransport) isRetryable(resp *http.Response, err error) bool {
+func (t *RetryTransport) isRetryable(method string, resp *http.Response, err error) bool {
 	if errors.Is(err, circuitbreaker.ErrCircuitOpen) {
+		return false
+	}
+
+	if !isIdempotent(method) {
 		return false
 	}
 
@@ -94,7 +95,9 @@ func (t *RetryTransport) isRetryable(resp *http.Response, err error) bool {
 		return true
 	}
 
-	if resp != nil && resp.StatusCode >= http.StatusInternalServerError {
+	if resp != nil && (resp.StatusCode == http.StatusBadGateway ||
+		resp.StatusCode == http.StatusServiceUnavailable ||
+		resp.StatusCode == http.StatusGatewayTimeout) {
 		return true
 	}
 
@@ -103,12 +106,22 @@ func (t *RetryTransport) isRetryable(resp *http.Response, err error) bool {
 
 func (t *RetryTransport) calculateBackoff(attempt int) time.Duration {
 	floatInterval := float64(t.config.InitialInterval)
-	backoff := floatInterval * math.Pow(2, float64(attempt))
+	backoff := floatInterval * float64(int(1)<<attempt)
 
 	duration := time.Duration(backoff)
 	if duration > t.config.MaxInterval {
-		return t.config.MaxInterval
+		duration = t.config.MaxInterval
 	}
 
-	return duration
+	jitter := time.Duration(rand.Int63n(int64(duration)/10 + 1))
+	return duration + jitter
+}
+
+func isIdempotent(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPut, http.MethodDelete, http.MethodTrace:
+		return true
+	default:
+		return false
+	}
 }

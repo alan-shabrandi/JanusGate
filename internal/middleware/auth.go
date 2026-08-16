@@ -59,7 +59,6 @@ func Authenticate(tokenMgr auth.TokenManager) Middleware {
 				return
 			}
 
-			// استفاده از پکیج auth برای ثبت در Context
 			ctx := auth.InjectClaims(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -67,7 +66,6 @@ func Authenticate(tokenMgr auth.TokenManager) Middleware {
 }
 
 func writeAuthError(w http.ResponseWriter, r *http.Request, message string, statusCode int) {
-	// ست کردن هدر استاندارد برای ارور 401
 	if statusCode == http.StatusUnauthorized {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="JanusGate"`)
 	}

@@ -18,8 +18,7 @@ type Claims struct {
 	Roles    []string `json:"roles,omitempty"`
 	jwt.RegisteredClaims
 }
-
 type TokenManager interface {
 	GenerateToken(userID string, username string, roles []string, duration time.Duration) (string, error)
-	ValidateToken(tokenStr string) (*Claims, error)
+	ValidateToken(tokenStr string) (Claims, error)
 }
