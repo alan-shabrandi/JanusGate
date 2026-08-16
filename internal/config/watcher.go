@@ -11,89 +11,110 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-type FileWatcher struct {
-	watcher  *fsnotify.Watcher
-	filePath string
-	mu       sync.Mutex
-	stopOnce sync.Once
-	done     chan struct{}
+type OnConfigChangeFunc func(newCfg *Config)
+
+type BackgroundWatcher struct {
+	configPath string
+	manager    *Manager
+	watcher    *fsnotify.Watcher
+	mu         sync.Mutex
+	stopChan   chan struct{}
 }
 
-func NewFileWatcher(filePath string) (*FileWatcher, error) {
-	absPath, err := filepath.Abs(filePath)
+func NewBackgroundWatcher(configPath string, manager *Manager) (*BackgroundWatcher, error) {
+	absPath, err := filepath.Abs(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", filePath, err)
+		return nil, fmt.Errorf("failed to resolve absolute config path: %w", err)
 	}
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
+		return nil, fmt.Errorf("failed to initialize fsnotify watcher: %w", err)
 	}
 
-	dir := filepath.Dir(absPath)
-	if err := watcher.Add(dir); err != nil {
-		_ = watcher.Close()
-		return nil, fmt.Errorf("failed to watch directory %s: %w", dir, err)
-	}
-
-	return &FileWatcher{
-		watcher:  watcher,
-		filePath: absPath,
-		done:     make(chan struct{}),
+	return &BackgroundWatcher{
+		configPath: absPath,
+		manager:    manager,
+		watcher:    watcher,
+		stopChan:   make(chan struct{}),
 	}, nil
 }
 
-func (fw *FileWatcher) Start(ctx context.Context, onChange func()) {
-	var (
-		debounceTimer *time.Timer
-		debounceMu    sync.Mutex
-	)
+func (bw *BackgroundWatcher) Start(ctx context.Context, onChange OnConfigChangeFunc) error {
+	dir := filepath.Dir(bw.configPath)
+	if err := bw.watcher.Add(dir); err != nil {
+		_ = bw.watcher.Close()
+		return fmt.Errorf("failed to watch directory %s: %w", dir, err)
+	}
 
-	const debounceDuration = 100 * time.Millisecond
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-fw.done:
-				return
-			case event, ok := <-fw.watcher.Events:
-				if !ok {
-					return
-				}
-
-				if filepath.Clean(event.Name) != fw.filePath {
-					continue
-				}
-
-				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-					slog.Debug("OS file event detected", "event", event.Op.String(), "file", event.Name)
-
-					debounceMu.Lock()
-					if debounceTimer != nil {
-						debounceTimer.Stop()
-					}
-					debounceTimer = time.AfterFunc(debounceDuration, func() {
-						slog.Info("Config file modification settled, triggering reload", "file", event.Name)
-						onChange()
-					})
-					debounceMu.Unlock()
-				}
-
-			case err, ok := <-fw.watcher.Errors:
-				if !ok {
-					return
-				}
-				slog.Error("fsnotify watcher encountered error", "error", err)
-			}
-		}
-	}()
+	go bw.watchLoop(ctx, onChange)
+	slog.Info("Background config watcher goroutine started", "target_file", bw.configPath)
+	return nil
 }
 
-func (fw *FileWatcher) Close() error {
-	fw.stopOnce.Do(func() {
-		close(fw.done)
-	})
-	return fw.watcher.Close()
+func (bw *BackgroundWatcher) watchLoop(ctx context.Context, onChange OnConfigChangeFunc) {
+	var (
+		debounceTimer *time.Timer
+		timerMu       sync.Mutex
+	)
+	const debounceInterval = 150 * time.Millisecond
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("Stopping config watcher background goroutine (context canceled)")
+			return
+		case <-bw.stopChan:
+			slog.Info("Stopping config watcher background goroutine")
+			return
+		case event, ok := <-bw.watcher.Events:
+			if !ok {
+				return
+			}
+
+			if filepath.Clean(event.Name) != bw.configPath {
+				continue
+			}
+
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+				timerMu.Lock()
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
+				debounceTimer = time.AfterFunc(debounceInterval, func() {
+					slog.Info("Change detected in config file, re-parsing...", "file", event.Name)
+
+					newCfg, err := bw.manager.Reload(bw.configPath)
+					if err != nil {
+						slog.Error("Failed to re-parse updated config file (retaining previous valid config)", "error", err)
+						return
+					}
+
+					if onChange != nil {
+						onChange(newCfg)
+					}
+				})
+				timerMu.Unlock()
+			}
+
+		case err, ok := <-bw.watcher.Errors:
+			if !ok {
+				return
+			}
+			slog.Error("Config watcher event loop error", "error", err)
+		}
+	}
+}
+
+func (bw *BackgroundWatcher) Stop() error {
+	bw.mu.Lock()
+	defer bw.mu.Unlock()
+
+	select {
+	case <-bw.stopChan:
+		return nil
+	default:
+		close(bw.stopChan)
+	}
+	return bw.watcher.Close()
 }
