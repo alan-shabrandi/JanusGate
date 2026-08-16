@@ -12,6 +12,7 @@ type Server struct {
 	IsHealthy atomic.Bool
 	LastCheck atomic.Int64
 }
+
 type ServerSnapshot struct {
 	URL       string    `json:"url"`
 	Weight    int       `json:"weight"`
@@ -79,6 +80,20 @@ func (r *Registry) GetServers(routeID string) []*Server {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.routePools[routeID]
+}
+
+func (r *Registry) GetHealthyServers(routeID string) []*Server {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	pool := r.routePools[routeID]
+	healthy := make([]*Server, 0, len(pool))
+	for _, srv := range pool {
+		if srv.IsHealthy.Load() {
+			healthy = append(healthy, srv)
+		}
+	}
+	return healthy
 }
 
 func (r *Registry) GetAllStatuses() map[string]ServerSnapshot {

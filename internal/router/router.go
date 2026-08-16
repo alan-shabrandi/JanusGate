@@ -78,8 +78,6 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 			route.MatchType = "prefix"
 		}
 
-		primaryUpstream := route.Upstreams[0].URL
-
 		if r.registry != nil {
 			for _, u := range route.Upstreams {
 				r.registry.RegisterServer(route.ID, u.URL, u.Weight)
@@ -94,13 +92,52 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 			FailureRatioToTrip: 0.5,
 		}
 
-		revProxy, err := proxy.NewProxy(primaryUpstream, &cbConfig, route.Retry, r.registry)
-		if err != nil {
-			return fmt.Errorf("failed to create proxy for route %s: %w", route.ID, err)
+		upstreamProxies := make(map[string]http.Handler, len(route.Upstreams))
+
+		for _, u := range route.Upstreams {
+			revProxy, err := proxy.NewProxy(u.URL, &cbConfig, route.Retry, r.registry)
+			if err != nil {
+				return fmt.Errorf("failed to create proxy for route %s (upstream %s): %w", route.ID, u.URL, err)
+			}
+			upstreamProxies[u.URL] = revProxy
+		}
+
+		var rrIndex uint64
+		routeID := route.ID
+
+		var dynamicHandler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if r.registry == nil {
+				if primary, ok := upstreamProxies[route.Upstreams[0].URL]; ok {
+					primary.ServeHTTP(w, req)
+					return
+				}
+				writeJSONError(w, http.StatusServiceUnavailable, "Service Unavailable", "No upstream available", req.URL.Path)
+				return
+			}
+
+			healthyServers := r.registry.GetHealthyServers(routeID)
+			if len(healthyServers) == 0 {
+				writeJSONError(w, http.StatusServiceUnavailable, "Service Unavailable", "No healthy upstream servers available for this route", req.URL.Path)
+				return
+			}
+
+			idx := atomic.AddUint64(&rrIndex, 1) - 1
+			selectedServer := healthyServers[idx%uint64(len(healthyServers))]
+
+			handler, ok := upstreamProxies[selectedServer.URL]
+			if !ok {
+				writeJSONError(w, http.StatusBadGateway, "Bad Gateway", "Selected upstream handler not found", req.URL.Path)
+				return
+			}
+
+			handler.ServeHTTP(w, req)
+		})
+
+		if route.StripPrefix {
+			dynamicHandler = proxy.StripPrefix(route.PathPrefix, dynamicHandler)
 		}
 
 		pipeline := middleware.New()
-
 		pipeline = pipeline.Use(middleware.Timeout(route.Timeout))
 
 		if route.RequiresAuth {
@@ -108,18 +145,13 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 				slog.Error("Route requires authentication but TokenManager is nil", "route_id", route.ID)
 			} else {
 				pipeline = pipeline.Use(middleware.Authenticate(r.tokenMgr))
-				slog.Info("Route loaded [PRIVATE]", "id", route.ID, "path", route.PathPrefix, "target", primaryUpstream)
+				slog.Info("Route loaded [PRIVATE]", "id", route.ID, "path", route.PathPrefix, "upstreams_count", len(route.Upstreams))
 			}
 		} else {
-			slog.Info("Route loaded [PUBLIC]", "id", route.ID, "path", route.PathPrefix, "target", primaryUpstream)
+			slog.Info("Route loaded [PUBLIC]", "id", route.ID, "path", route.PathPrefix, "upstreams_count", len(route.Upstreams))
 		}
 
-		var handler http.Handler = revProxy
-		if route.StripPrefix {
-			handler = proxy.StripPrefix(route.PathPrefix, handler)
-		}
-
-		finalHandler := pipeline.Then(handler)
+		finalHandler := pipeline.Then(dynamicHandler)
 
 		newRoutes = append(newRoutes, routeEntry{
 			config:  route,
