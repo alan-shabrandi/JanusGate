@@ -1,75 +1,84 @@
 package metrics
 
 import (
+	"strconv"
+	"sync"
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+var (
+	globalMetrics *Metrics
+	once          sync.Once
+)
+
 type Metrics struct {
-	HTTPRequestsTotal    *prometheus.CounterVec
-	HTTPRequestDuration  *prometheus.HistogramVec
-	ActiveConnections    *prometheus.GaugeVec
-	UpstreamStatus       *prometheus.GaugeVec
-	UpstreamRequestCount *prometheus.CounterVec
+	RequestsTotal   *prometheus.CounterVec
+	RequestDuration *prometheus.HistogramVec
 }
 
-func NewMetrics(reg prometheus.Registerer) *Metrics {
-	if reg == nil {
-		reg = prometheus.DefaultRegisterer
+func Init(reg prometheus.Registerer) *Metrics {
+	once.Do(func() {
+		if reg == nil {
+			reg = prometheus.DefaultRegisterer
+		}
+
+		factory := promauto.With(reg)
+
+		globalMetrics = &Metrics{
+			RequestsTotal: factory.NewCounterVec(
+				prometheus.CounterOpts{
+					Namespace: "janusgate",
+					Subsystem: "http",
+					Name:      "requests_total",
+					Help:      "Total number of HTTP requests processed by JanusGate.",
+				},
+				[]string{"method", "path", "status"},
+			),
+
+			RequestDuration: factory.NewHistogramVec(
+				prometheus.HistogramOpts{
+					Namespace: "janusgate",
+					Subsystem: "http",
+					Name:      "request_duration_seconds",
+					Help:      "HTTP request latency distribution in seconds.",
+					Buckets:   []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+				},
+				[]string{"method", "path"},
+			),
+		}
+	})
+
+	return globalMetrics
+}
+
+func Get() *Metrics {
+	if globalMetrics == nil {
+		return Init(prometheus.DefaultRegisterer)
 	}
+	return globalMetrics
+}
 
-	factory := promauto.With(reg)
-
-	return &Metrics{
-		HTTPRequestsTotal: factory.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: "janusgate",
-				Subsystem: "http",
-				Name:      "requests_total",
-				Help:      "Total number of HTTP requests processed by the gateway.",
-			},
-			[]string{"method", "path", "status"},
-		),
-
-		HTTPRequestDuration: factory.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Namespace: "janusgate",
-				Subsystem: "http",
-				Name:      "request_duration_seconds",
-				Help:      "HTTP request latency distributions in seconds.",
-				Buckets:   prometheus.DefBuckets,
-			},
-			[]string{"method", "path"},
-		),
-
-		ActiveConnections: factory.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: "janusgate",
-				Subsystem: "http",
-				Name:      "active_connections",
-				Help:      "Current number of active connections per upstream server.",
-			},
-			[]string{"target_url"},
-		),
-
-		UpstreamStatus: factory.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: "janusgate",
-				Subsystem: "upstream",
-				Name:      "health_status",
-				Help:      "Health status of upstream targets (1 for healthy, 0 for unhealthy).",
-			},
-			[]string{"route_id", "target_url"},
-		),
-
-		UpstreamRequestCount: factory.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: "janusgate",
-				Subsystem: "upstream",
-				Name:      "requests_total",
-				Help:      "Total number of requests forwarded to upstream targets.",
-			},
-			[]string{"route_id", "target_url", "status"},
-		),
+func (m *Metrics) IncRequestsTotal(method, path string, statusCode int) {
+	if m == nil || m.RequestsTotal == nil {
+		return
 	}
+	statusStr := strconv.Itoa(statusCode)
+	m.RequestsTotal.WithLabelValues(method, sanitizePathLabel(path), statusStr).Inc()
+}
+
+func (m *Metrics) ObserveRequestDuration(method, path string, duration time.Duration) {
+	if m == nil || m.RequestDuration == nil {
+		return
+	}
+	m.RequestDuration.WithLabelValues(method, sanitizePathLabel(path)).Observe(duration.Seconds())
+}
+
+func sanitizePathLabel(path string) string {
+	if path == "" {
+		return "/"
+	}
+	return path
 }
