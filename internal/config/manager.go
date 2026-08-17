@@ -5,7 +5,7 @@ import (
 	"log/slog"
 )
 
-func (m *Manager) Reload(configPath string) (*Config, error) {
+func (m *Manager) Reload() (*Config, error) {
 	if err := m.v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("failed to re-read config file: %w", err)
 	}
