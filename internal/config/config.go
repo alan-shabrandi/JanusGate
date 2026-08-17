@@ -165,6 +165,10 @@ func applyDynamicDefaults(cfg *Config) {
 }
 
 func validateConfig(cfg *Config) error {
+	if len(cfg.Auth.JWTSecret) < 32 {
+		return fmt.Errorf("auth.jwt_secret must be at least 32 characters long, got %d", len(cfg.Auth.JWTSecret))
+	}
+
 	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
 		return fmt.Errorf("invalid server port: %d", cfg.Server.Port)
 	}

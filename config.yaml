@@ -7,7 +7,7 @@ redis:
   db: 0
 
 auth:
-  jwt_secret: "super-secret-key-janusgate"
+  jwt_secret: "super-secret-key-janusgate-32bytes!!"
 
 routes:
   - id: "user-service"
