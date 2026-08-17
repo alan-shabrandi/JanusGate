@@ -78,7 +78,7 @@ func (bw *BackgroundWatcher) watchLoop(ctx context.Context, onChange OnConfigCha
 				continue
 			}
 
-			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Rename) || event.Has(fsnotify.Remove) {
 				timerMu.Lock()
 				if debounceTimer != nil {
 					debounceTimer.Stop()
@@ -86,7 +86,7 @@ func (bw *BackgroundWatcher) watchLoop(ctx context.Context, onChange OnConfigCha
 				debounceTimer = time.AfterFunc(debounceInterval, func() {
 					slog.Info("Change detected in config file, re-parsing...", "file", event.Name)
 
-					newCfg, err := bw.manager.Reload(bw.configPath)
+					newCfg, err := bw.manager.Reload()
 					if err != nil {
 						slog.Error("Failed to re-parse updated config file (retaining previous valid config)", "error", err)
 						return
