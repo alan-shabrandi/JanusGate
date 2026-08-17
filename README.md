@@ -19,24 +19,49 @@ JanusGate is a lightweight, distributed API gateway and reverse proxy written in
 ## Architecture
 
 ```mermaid
-flowchart LR
-    Client["Clients"] --> Gateway["JanusGate"]
+graph TD
+    %% Client & External Traffic
+    Client[🌐 External Client / User] -->|HTTP/HTTPS Request| Gateway[🚪 JanusGate Entry point :9090]
 
-    Gateway --> Router["Dynamic Router"]
-    Router --> Auth["Auth"]
-    Router --> Rate["Rate Limiter"]
-    Router --> LB["Load Balancer"]
-    LB --> CB["Circuit Breaker"]
+    subgraph JanusGate ["🛡️ JanusGate API Gateway Subsystem"]
+        Gateway --> MW_Recovery[1. Recovery Middleware]
+        MW_Recovery --> MW_Logging[2. Structured Logger / slog]
+        MW_Logging --> MW_Trace[3. OpenTelemetry / Jaeger Tracer]
 
-    CB --> S1["User Service"]
-    CB --> S2["Order Service"]
-    CB --> S3["Other Services"]
+        %% Rate Limiting Branch
+        MW_Trace --> MW_RateLimit{4. Redis Rate Limiter}
+        MW_RateLimit -->|Limit Exceeded 429| Client
+        MW_RateLimit -->|Pass| MW_Auth
 
-    Rate -.-> Redis[("Redis")]
-    Gateway -.-> Metrics["Prometheus"]
-    Gateway -.-> Trace["OpenTelemetry"]
+        %% Authentication Branch
+        MW_Auth{5. JWT Auth Middleware}
+        MW_Auth -->|Invalid / Expired 401| Client
+        MW_Auth -->|Authorized| Router[6. Dynamic Router & Reverse Proxy]
+    end
 
-    Metrics --> Grafana["Grafana"]
+    subgraph Infrastructure ["📦 Infrastructure & Storage"]
+        Redis[(🔴 Redis Cache / Rate Limit Storage :6379)]
+        Prometheus[📊 Prometheus Metrics :9091]
+        Jaeger[🔎 Jaeger Tracing OTLP :4317]
+        Grafana[📈 Grafana Dashboard :3000]
+    end
+
+    subgraph Upstream ["🚀 Upstream Microservices Network"]
+        AuthSvc[🔐 Auth Service]
+        UserSvc[👤 User Service]
+        OrderSvc[🛒 Order Service]
+    end
+
+    %% Internal Connections & Data Flow
+    MW_RateLimit <-->|INCR & EXPIRE| Redis
+    JanusGate -.->|Scrape /metrics| Prometheus
+    JanusGate -.->|Export Spans| Jaeger
+    Prometheus -.->|Data Source| Grafana
+
+    %% Proxy Forwarding
+    Router -->|Proxy /api/v1/auth| AuthSvc
+    Router -->|Proxy /api/v1/users| UserSvc
+    Router -->|Proxy /api/v1/orders| OrderSvc
 ```
 
 ### Request Flow
