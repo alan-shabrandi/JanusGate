@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -39,6 +40,11 @@ func NewChecker(registry *upstream.Registry, interval time.Duration) *Checker {
 		registry: registry,
 		client: &http.Client{
 			Timeout: 3 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
 		},
 		interval:      interval,
 		healthPath:    "/health",
@@ -99,6 +105,8 @@ func (c *Checker) checkUpstream(ctx context.Context, targetURL string) {
 		return
 	}
 	defer resp.Body.Close()
+
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	isHealthy := resp.StatusCode >= 200 && resp.StatusCode < 300
 	c.updateState(targetURL, isHealthy, resp.Status)
