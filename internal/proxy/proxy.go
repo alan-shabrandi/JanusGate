@@ -33,8 +33,9 @@ func NewTracingTransport(base http.RoundTripper) http.RoundTripper {
 }
 
 func (t *TracingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	otel.GetTextMapPropagator().Inject(req.Context(), propagation.HeaderCarrier(req.Header))
-	return t.Base.RoundTrip(req)
+	reqClone := req.Clone(req.Context())
+	otel.GetTextMapPropagator().Inject(reqClone.Context(), propagation.HeaderCarrier(reqClone.Header))
+	return t.Base.RoundTrip(reqClone)
 }
 
 func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.RetryConfig, reg *upstream.Registry) (http.Handler, error) {
@@ -73,12 +74,12 @@ func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.Re
 		chainedTransport = NewPassiveHealthTransport(chainedTransport, targetURL, reg)
 	}
 
-	if retryCfg.Attempts > 0 {
-		chainedTransport = NewRetryTransport(chainedTransport, retryCfg)
-	}
-
 	if cbCfg != nil {
 		chainedTransport = circuitbreaker.NewTransport(*cbCfg, chainedTransport)
+	}
+
+	if retryCfg.Attempts > 0 {
+		chainedTransport = NewRetryTransport(chainedTransport, retryCfg)
 	}
 
 	proxy.Transport = chainedTransport

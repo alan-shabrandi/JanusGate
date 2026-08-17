@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"errors"
+	"io"
 	"log/slog"
 	"math/rand"
 	"net/http"
@@ -58,6 +59,7 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		if resp != nil && resp.Body != nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
 		}
 
@@ -72,10 +74,12 @@ func (t *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			"error", err,
 		)
 
+		timer := time.NewTimer(backoffDuration)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return nil, ctx.Err()
-		case <-time.After(backoffDuration):
+		case <-timer.C:
 		}
 	}
 
