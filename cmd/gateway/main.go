@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -43,6 +44,20 @@ func main() {
 			}
 		}()
 	}
+
+	pprofAddr := "localhost:6060"
+	pprofServer := &http.Server{
+		Addr:              pprofAddr,
+		Handler:           http.DefaultServeMux,
+		ReadHeaderTimeout: 3 * time.Second,
+	}
+
+	go func() {
+		slog.Info("Starting Internal Profiling Server (pprof)...", "addr", pprofAddr)
+		if err := pprofServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Warn("Internal pprof server stopped unexpectedly", "error", err)
+		}
+	}()
 
 	cfg, mgr, err := config.Load("config.yaml")
 	if err != nil {
@@ -155,9 +170,8 @@ func main() {
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer shutdownCancel()
 
-			if err := metricsServer.Shutdown(shutdownCtx); err != nil {
-				slog.Error("Metrics server shutdown error", "error", err)
-			}
+			_ = pprofServer.Shutdown(shutdownCtx)
+			_ = metricsServer.Shutdown(shutdownCtx)
 
 			if err := server.Shutdown(shutdownCtx); err != nil {
 				slog.Error("Server forced to shutdown", "error", err)
