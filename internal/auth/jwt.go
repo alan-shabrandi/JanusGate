@@ -71,12 +71,12 @@ func (m *jwtManager) ValidateToken(tokenStr string) (Claims, error) {
 	})
 
 	if err != nil {
-		slog.Warn("JWT validation failed", "error", err.Error())
+		slog.Debug("JWT validation failed", "error", err.Error())
 		return Claims{}, ErrInvalidToken
 	}
 
 	if !token.Valid {
-		slog.Warn("JWT parsed but explicitly marked invalid")
+		slog.Debug("JWT parsed but explicitly marked invalid")
 		return Claims{}, ErrInvalidToken
 	}
 
