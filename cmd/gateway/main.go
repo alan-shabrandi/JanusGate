@@ -35,6 +35,9 @@ func main() {
 
 	m := metrics.Init(nil)
 
+	metricsServer := metrics.NewServer(9090, nil)
+	metricsServer.Start()
+
 	healthChecker := health.NewChecker(registry, 10*time.Second)
 	healthChecker.RegisterRoutesUpstreams(cfg.Routes)
 	healthChecker.Start(ctx)
@@ -130,6 +133,10 @@ func main() {
 
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer shutdownCancel()
+
+			if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+				slog.Error("Metrics server shutdown error", "error", err)
+			}
 
 			if err := server.Shutdown(shutdownCtx); err != nil {
 				slog.Error("Server forced to shutdown", "error", err)
