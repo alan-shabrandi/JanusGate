@@ -17,7 +17,7 @@ import (
 	"janusgate/internal/middleware"
 	"janusgate/internal/ratelimit"
 	"janusgate/internal/router"
-	janusTrace "janusgate/internal/trace"
+	"janusgate/internal/telemetry"
 	"janusgate/internal/upstream"
 )
 
@@ -25,20 +25,21 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	shutdownTrace, err := janusTrace.InitTracer(ctx, janusTrace.Config{
-		ServiceName: "janusgate",
-		Environment: "development",
-		Endpoint:    "localhost:4317",
-		Insecure:    true,
-	})
+	jaegerEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if jaegerEndpoint == "" {
+		jaegerEndpoint = "localhost:4317"
+	}
+
+	shutdownTracer, err := telemetry.InitTracer(ctx, "janusgate-gateway", jaegerEndpoint)
 	if err != nil {
-		slog.Error("Failed to initialize OpenTelemetry tracer", "error", err)
+		slog.Warn("Failed to initialize OpenTelemetry tracer, running without Jaeger", "error", err)
 	} else {
+		slog.Info("OpenTelemetry tracer successfully connected to Jaeger", "endpoint", jaegerEndpoint)
 		defer func() {
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer shutdownCancel()
-			if err := shutdownTrace(shutdownCtx); err != nil {
-				slog.Error("Error shutting down tracer provider", "error", err)
+			if err := shutdownTracer(shutdownCtx); err != nil {
+				slog.Error("Failed to gracefully shutdown tracer", "error", err)
 			}
 		}()
 	}
@@ -97,8 +98,8 @@ func main() {
 
 	globalChain := middleware.New(
 		middleware.Recovery,
-		middleware.Trace(),
 		middleware.RequestID(),
+		middleware.Trace(),
 		middleware.Logger,
 		middleware.Metrics(m),
 		middleware.RateLimit(redisLimiter, 60, time.Minute),

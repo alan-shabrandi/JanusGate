@@ -22,6 +22,16 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: janusgate-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    restart: unless-stopped
 
 volumes:
   redis_data:
