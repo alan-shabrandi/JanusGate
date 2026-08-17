@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -16,27 +17,25 @@ local key = KEYS[1]
 local limit = tonumber(ARGV[1])
 local window_millis = tonumber(ARGV[2])
 local requested = tonumber(ARGV[3])
-
-local redis_time = redis.call('TIME')
-local now = tonumber(redis_time[1]) * 1000 + math.floor(tonumber(redis_time[2]) / 1000)
+local now = tonumber(ARGV[4])
 
 local state = redis.call("HMGET", key, "tokens", "last_updated")
 local tokens = tonumber(state[1])
 local last_updated = tonumber(state[2])
 
 if tokens == nil then
-    tokens = limit
-    last_updated = now
+	tokens = limit
+	last_updated = now
 else
-    local delta = math.max(0, now - last_updated)
-    local refill_rate = limit / window_millis
-    tokens = math.min(limit, tokens + (delta * refill_rate))
+	local delta = math.max(0, now - last_updated)
+	local refill_rate = limit / window_millis
+	tokens = math.min(limit, tokens + (delta * refill_rate))
 end
 
 local allowed = 0
 if tokens >= requested then
-    tokens = tokens - requested
-    allowed = 1
+	tokens = tokens - requested
+	allowed = 1
 end
 
 redis.call("HSET", key, "tokens", tokens, "last_updated", now)
@@ -92,9 +91,14 @@ func (r *redisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 	}
 
 	redisKey := fmt.Sprintf("ratelimit:%s", key)
+	nowMillis := time.Now().UnixMilli()
 
-	res, err := r.script.Run(ctx, r.client, []string{redisKey}, limit, windowMillis, 1).Result()
+	res, err := r.script.Run(ctx, r.client, []string{redisKey}, limit, windowMillis, 1, nowMillis).Result()
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return false, 0, err
+		}
+
 		slog.Error("Redis rate limiter failed, failing open (allowing request)", "key", key, "error", err)
 		return true, 0, nil
 	}
