@@ -25,6 +25,18 @@ func (w *weightedRoundRobinBalancer) Next(servers []*upstream.Server) (*upstream
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	if len(w.currentWeights) > len(servers) {
+		activeURLs := make(map[string]struct{}, len(servers))
+		for _, srv := range servers {
+			activeURLs[srv.URL] = struct{}{}
+		}
+		for url := range w.currentWeights {
+			if _, exists := activeURLs[url]; !exists {
+				delete(w.currentWeights, url)
+			}
+		}
+	}
+
 	var best *upstream.Server
 	totalWeight := 0
 

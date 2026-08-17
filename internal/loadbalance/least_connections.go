@@ -1,10 +1,14 @@
 package loadbalance
 
 import (
+	"sync/atomic"
+
 	"janusgate/internal/upstream"
 )
 
-type leastConnectionsBalancer struct{}
+type leastConnectionsBalancer struct {
+	counter uint64
+}
 
 func NewLeastConnections() Balancer {
 	return &leastConnectionsBalancer{}
@@ -15,20 +19,28 @@ func (lc *leastConnectionsBalancer) Next(servers []*upstream.Server) (*upstream.
 		return nil, ErrNoAvailableServer
 	}
 
-	var best *upstream.Server
 	var minConns int64 = -1
+	var best []*upstream.Server
 
 	for _, srv := range servers {
 		conns := srv.ActiveConns.Load()
 		if minConns == -1 || conns < minConns {
 			minConns = conns
-			best = srv
+			best = []*upstream.Server{srv}
+		} else if conns == minConns {
+			best = append(best, srv)
 		}
 	}
 
-	if best == nil {
+	if len(best) == 0 {
 		return nil, ErrNoAvailableServer
 	}
 
-	return best, nil
+	if len(best) == 1 {
+		return best[0], nil
+	}
+
+	n := uint64(len(best))
+	idx := atomic.AddUint64(&lc.counter, 1) - 1
+	return best[idx%n], nil
 }
