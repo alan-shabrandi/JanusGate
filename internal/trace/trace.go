@@ -3,7 +3,6 @@ package trace
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -12,7 +11,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -25,6 +23,7 @@ type Config struct {
 	Environment string
 	Endpoint    string
 	Insecure    bool
+	SampleRatio float64
 }
 
 func InitTracer(ctx context.Context, cfg Config) (func(context.Context) error, error) {
@@ -45,14 +44,10 @@ func InitTracer(ctx context.Context, cfg Config) (func(context.Context) error, e
 	if cfg.Insecure {
 		opts = append(opts,
 			otlptracegrpc.WithTLSCredentials(insecure.NewCredentials()),
-			otlptracegrpc.WithDialOption(grpc.WithBlock()),
 		)
 	}
 
-	ctxTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	exporter, err := otlptracegrpc.New(ctxTimeout, opts...)
+	exporter, err := otlptracegrpc.New(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 	}
@@ -71,10 +66,21 @@ func InitTracer(ctx context.Context, cfg Config) (func(context.Context) error, e
 
 	bsp := sdktrace.NewBatchSpanProcessor(exporter)
 
+	var sampler sdktrace.Sampler
+	if cfg.Environment == "production" {
+		ratio := cfg.SampleRatio
+		if ratio == 0 {
+			ratio = 0.01
+		}
+		sampler = sdktrace.ParentBased(sdktrace.TraceIDRatioBased(ratio))
+	} else {
+		sampler = sdktrace.AlwaysSample()
+	}
+
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSpanProcessor(bsp),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithSampler(sampler),
 	)
 
 	otel.SetTracerProvider(tp)
