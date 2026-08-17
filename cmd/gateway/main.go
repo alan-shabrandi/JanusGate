@@ -17,12 +17,31 @@ import (
 	"janusgate/internal/middleware"
 	"janusgate/internal/ratelimit"
 	"janusgate/internal/router"
+	janusTrace "janusgate/internal/trace"
 	"janusgate/internal/upstream"
 )
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	shutdownTrace, err := janusTrace.InitTracer(ctx, janusTrace.Config{
+		ServiceName: "janusgate",
+		Environment: "development",
+		Endpoint:    "localhost:4317",
+		Insecure:    true,
+	})
+	if err != nil {
+		slog.Error("Failed to initialize OpenTelemetry tracer", "error", err)
+	} else {
+		defer func() {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer shutdownCancel()
+			if err := shutdownTrace(shutdownCtx); err != nil {
+				slog.Error("Error shutting down tracer provider", "error", err)
+			}
+		}()
+	}
 
 	cfg, mgr, err := config.Load("config.yaml")
 	if err != nil {
@@ -44,7 +63,7 @@ func main() {
 
 	jwtMgr, err := auth.NewJWTManager(cfg.Auth.JWTSecret, "")
 	if err != nil {
-		slog.Error("Failed to initialize JWT Manager (check secret length)", "error", err)
+		slog.Error("Failed to initialize JWT Manager", "error", err)
 		os.Exit(1)
 	}
 
@@ -78,6 +97,7 @@ func main() {
 
 	globalChain := middleware.New(
 		middleware.Recovery,
+		middleware.Trace(),
 		middleware.RequestID,
 		middleware.Logger,
 		middleware.Metrics(m),
@@ -113,7 +133,7 @@ func main() {
 			slog.Info("SIGHUP received, reloading configuration...")
 			newCfg, err := mgr.Reload("config.yaml")
 			if err != nil {
-				slog.Error("Failed to reload config on SIGHUP (keeping old config)", "error", err)
+				slog.Error("Failed to reload config on SIGHUP", "error", err)
 				continue
 			}
 
