@@ -13,6 +13,7 @@ import (
 	"janusgate/internal/auth"
 	"janusgate/internal/config"
 	"janusgate/internal/health"
+	"janusgate/internal/metrics"
 	"janusgate/internal/middleware"
 	"janusgate/internal/ratelimit"
 	"janusgate/internal/router"
@@ -31,6 +32,8 @@ func main() {
 
 	holder := config.NewHolder(cfg)
 	registry := upstream.NewRegistry()
+
+	m := metrics.Init(nil)
 
 	healthChecker := health.NewChecker(registry, 10*time.Second)
 	healthChecker.RegisterRoutesUpstreams(cfg.Routes)
@@ -74,6 +77,7 @@ func main() {
 		middleware.Recovery,
 		middleware.RequestID,
 		middleware.Logger,
+		middleware.Metrics(m),
 		middleware.RateLimit(redisLimiter, 60, time.Minute),
 	)
 	serverHandler := globalChain.Then(rt)
