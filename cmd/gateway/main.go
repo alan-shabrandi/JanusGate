@@ -98,7 +98,7 @@ func main() {
 	globalChain := middleware.New(
 		middleware.Recovery,
 		middleware.Trace(),
-		middleware.RequestID,
+		middleware.RequestID(),
 		middleware.Logger,
 		middleware.Metrics(m),
 		middleware.RateLimit(redisLimiter, 60, time.Minute),
