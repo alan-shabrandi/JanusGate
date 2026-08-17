@@ -38,16 +38,28 @@ type AuthConfig struct {
 }
 
 type RouteConfig struct {
-	ID           string           `mapstructure:"id" json:"id" yaml:"id"`
-	PathPrefix   string           `mapstructure:"path_prefix" json:"path_prefix" yaml:"path_prefix"`
-	MatchType    string           `mapstructure:"match_type" json:"match_type" yaml:"match_type"`
-	Methods      []string         `mapstructure:"methods" json:"methods" yaml:"methods"`
-	StripPrefix  bool             `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
-	RequiresAuth bool             `mapstructure:"requires_auth" json:"requires_auth" yaml:"requires_auth"`
-	Timeout      time.Duration    `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
-	LBStrategy   string           `mapstructure:"lb_strategy" json:"lb_strategy" yaml:"lb_strategy"`
-	Retry        RetryConfig      `mapstructure:"retry" json:"retry" yaml:"retry"`
-	Upstreams    []UpstreamConfig `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`
+	ID             string               `mapstructure:"id" json:"id" yaml:"id"`
+	PathPrefix     string               `mapstructure:"path_prefix" json:"path_prefix" yaml:"path_prefix"`
+	MatchType      string               `mapstructure:"match_type" json:"match_type" yaml:"match_type"`
+	Methods        []string             `mapstructure:"methods" json:"methods" yaml:"methods"`
+	StripPrefix    bool                 `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
+	RequiresAuth   bool                 `mapstructure:"requires_auth" json:"requires_auth" yaml:"requires_auth"`
+	RateLimit      RateLimitConfig      `mapstructure:"rate_limit" json:"rate_limit" yaml:"rate_limit"`
+	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker" json:"circuit_breaker" yaml:"circuit_breaker"`
+	Timeout        time.Duration        `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
+	LBStrategy     string               `mapstructure:"lb_strategy" json:"lb_strategy" yaml:"lb_strategy"`
+	Retry          RetryConfig          `mapstructure:"retry" json:"retry" yaml:"retry"`
+	Upstreams      []UpstreamConfig     `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`
+}
+
+type RateLimitConfig struct {
+	Enabled           bool `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	RequestsPerSecond int  `mapstructure:"requests_per_second" json:"requests_per_second" yaml:"requests_per_second"`
+}
+
+type CircuitBreakerConfig struct {
+	Enabled     bool `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	MaxRequests int  `mapstructure:"max_requests" json:"max_requests" yaml:"max_requests"`
 }
 
 type UpstreamConfig struct {
@@ -142,6 +154,10 @@ func setStaticDefaults(v *viper.Viper) {
 
 func applyDynamicDefaults(cfg *Config) {
 	for i := range cfg.Routes {
+		for j, method := range cfg.Routes[i].Methods {
+			cfg.Routes[i].Methods[j] = strings.ToUpper(method)
+		}
+
 		if cfg.Routes[i].LBStrategy == "" {
 			cfg.Routes[i].LBStrategy = "round_robin"
 		}
@@ -184,6 +200,14 @@ func validateConfig(cfg *Config) error {
 
 		if route.MatchType != "" && route.MatchType != "exact" && route.MatchType != "prefix" {
 			return fmt.Errorf("route [%d] (%s): invalid match_type '%s', must be 'exact' or 'prefix'", i, route.ID, route.MatchType)
+		}
+
+		if route.RateLimit.Enabled && route.RateLimit.RequestsPerSecond <= 0 {
+			return fmt.Errorf("route [%d] (%s): rate_limit.requests_per_second must be > 0 when enabled", i, route.ID)
+		}
+
+		if route.CircuitBreaker.Enabled && route.CircuitBreaker.MaxRequests <= 0 {
+			return fmt.Errorf("route [%d] (%s): circuit_breaker.max_requests must be > 0 when enabled", i, route.ID)
 		}
 
 		if len(route.Upstreams) == 0 {
