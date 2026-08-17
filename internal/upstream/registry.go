@@ -80,15 +80,21 @@ func (r *Registry) SetHealth(targetURL string, isHealthy bool) {
 
 func (r *Registry) GetServers(routeID string) []*Server {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.routePools[routeID]
+	pool := r.routePools[routeID]
+	r.mu.RUnlock()
+
+	return pool
 }
 
 func (r *Registry) GetHealthyServers(routeID string) []*Server {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	pool := r.routePools[routeID]
+	r.mu.RUnlock()
+
+	if len(pool) == 0 {
+		return nil
+	}
+
 	healthy := make([]*Server, 0, len(pool))
 	for _, srv := range pool {
 		if srv.IsHealthy.Load() {
