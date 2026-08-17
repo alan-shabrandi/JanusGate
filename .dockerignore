@@ -1,0 +1,9 @@
+.git
+.gitignore
+.idea
+.vscode
+*.md
+scripts/
+bin/
+tmp/
+coverage.out
