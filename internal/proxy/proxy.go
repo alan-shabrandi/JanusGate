@@ -13,10 +13,29 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+
 	"janusgate/internal/circuitbreaker"
 	"janusgate/internal/config"
 	"janusgate/internal/upstream"
 )
+
+type TracingTransport struct {
+	Base http.RoundTripper
+}
+
+func NewTracingTransport(base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return &TracingTransport{Base: base}
+}
+
+func (t *TracingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	otel.GetTextMapPropagator().Inject(req.Context(), propagation.HeaderCarrier(req.Header))
+	return t.Base.RoundTrip(req)
+}
 
 func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.RetryConfig, reg *upstream.Registry) (http.Handler, error) {
 	target, err := url.Parse(targetURL)
@@ -47,6 +66,8 @@ func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.Re
 	}
 
 	chainedTransport := baseTransport
+
+	chainedTransport = NewTracingTransport(chainedTransport)
 
 	if reg != nil {
 		chainedTransport = NewPassiveHealthTransport(chainedTransport, targetURL, reg)
