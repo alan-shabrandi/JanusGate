@@ -17,20 +17,26 @@ var (
 type Config struct {
 	Name               string
 	MaxRequests        uint32
+	Interval           time.Duration
 	Timeout            time.Duration
 	MinRequestsToTrip  uint32
 	FailureRatioToTrip float64
 }
+
 type Transport struct {
 	cb   *gobreaker.CircuitBreaker
 	next http.RoundTripper
 }
 
 func NewTransport(cfg Config, next http.RoundTripper) *Transport {
+	if cfg.Interval == 0 {
+		cfg.Interval = 60 * time.Second
+	}
+
 	st := gobreaker.Settings{
 		Name:        cfg.Name,
 		MaxRequests: cfg.MaxRequests,
-		Interval:    0,
+		Interval:    cfg.Interval,
 		Timeout:     cfg.Timeout,
 
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
@@ -73,11 +79,18 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		if errors.Is(err, errUpstream5xx) {
-			return result.(*http.Response), nil
+			if resp, ok := result.(*http.Response); ok {
+				return resp, nil
+			}
+			return nil, err
 		}
 
 		return nil, err
 	}
 
-	return result.(*http.Response), nil
+	if resp, ok := result.(*http.Response); ok {
+		return resp, nil
+	}
+
+	return nil, errors.New("unexpected result type from circuit breaker")
 }
