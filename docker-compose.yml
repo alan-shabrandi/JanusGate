@@ -12,6 +12,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
   prometheus:
     image: prom/prometheus:v2.48.0
     container_name: janusgate-prometheus
@@ -22,6 +23,7 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
   jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: janusgate-jaeger
@@ -33,6 +35,23 @@ services:
       - "4318:4318"
     restart: unless-stopped
 
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: janusgate-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+
 volumes:
   redis_data:
+    driver: local
+  grafana_data:
     driver: local
