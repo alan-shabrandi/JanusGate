@@ -401,7 +401,7 @@ config.yaml
     Active Routes
 ```
 
-Changes to routing and gateway behavior can be applied without restarting the gateway process.
+Changes to routing and gateway behavior are applied atomically and lock-free in memory using `atomic.Pointer`. This guarantees zero-downtime and zero blocking overhead for active requests during a hot-reload.
 
 ## Contributing
 
