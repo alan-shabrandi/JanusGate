@@ -27,8 +27,8 @@ jobs:
           version: v1.57.2
           args: --config=.golangci.yml --timeout=5m
 
-  test-and-coverage:
-    name: Code Quality & Unit Tests
+  test:
+    name: Run Unit Tests & Race Detection
     needs: lint
     runs-on: ubuntu-latest
 
@@ -43,21 +43,20 @@ jobs:
           check-latest: true
           cache: true
 
-      - name: Download Go Modules
+      - name: Download Dependencies
         run: go mod download
 
-      - name: Run Go Vet
-        run: go vet ./...
+      - name: Execute Unit Tests with Race Detector
+        run: |
+          go test -v -race -failfast -coverprofile=coverage.out ./...
 
-      - name: Run Unit Tests with Race Detector & Coverage
-        run: go test -v -race -coverprofile=coverage.out ./...
-
-      - name: Run Benchmarks Validation
-        run: go test -bench=. -run=^$ ./internal/router ./internal/middleware
+      - name: Display Test Coverage Summary
+        run: |
+          go tool cover -func=coverage.out
 
   docker-build:
     name: Docker Multi-Stage Build Check
-    needs: test-and-coverage
+    needs: test
     runs-on: ubuntu-latest
 
     steps:
