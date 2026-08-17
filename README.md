@@ -21,9 +21,9 @@ JanusGate is a lightweight, distributed API gateway and reverse proxy written in
 ```mermaid
 graph TD
     %% Client & External Traffic
-    Client[🌐 External Client / User] -->|HTTP/HTTPS Request| Gateway[🚪 JanusGate Entry point :9090]
+    Client[External Client / User] -->|HTTP/HTTPS Request| Gateway[JanusGate Entry point :9090]
 
-    subgraph JanusGate ["🛡️ JanusGate API Gateway Subsystem"]
+    subgraph JanusGate ["JanusGate API Gateway Subsystem"]
         Gateway --> MW_Recovery[1. Recovery Middleware]
         MW_Recovery --> MW_Logging[2. Structured Logger / slog]
         MW_Logging --> MW_Trace[3. OpenTelemetry / Jaeger Tracer]
@@ -39,17 +39,17 @@ graph TD
         MW_Auth -->|Authorized| Router[6. Dynamic Router & Reverse Proxy]
     end
 
-    subgraph Infrastructure ["📦 Infrastructure & Storage"]
-        Redis[(🔴 Redis Cache / Rate Limit Storage :6379)]
-        Prometheus[📊 Prometheus Metrics :9091]
-        Jaeger[🔎 Jaeger Tracing OTLP :4317]
-        Grafana[📈 Grafana Dashboard :3000]
+    subgraph Infrastructure ["Infrastructure & Storage"]
+        Redis[(Redis Cache / Rate Limit Storage :6379)]
+        Prometheus[Prometheus Metrics :9091]
+        Jaeger[Jaeger Tracing OTLP :4317]
+        Grafana[Grafana Dashboard :3000]
     end
 
-    subgraph Upstream ["🚀 Upstream Microservices Network"]
-        AuthSvc[🔐 Auth Service]
-        UserSvc[👤 User Service]
-        OrderSvc[🛒 Order Service]
+    subgraph Upstream ["Upstream Microservices Network"]
+        AuthSvc[Auth Service]
+        UserSvc[User Service]
+        OrderSvc[Order Service]
     end
 
     %% Internal Connections & Data Flow
