@@ -17,6 +17,8 @@ var (
 type Metrics struct {
 	RequestsTotal   *prometheus.CounterVec
 	RequestDuration *prometheus.HistogramVec
+	ActiveRequests  prometheus.Gauge
+	UpstreamHealthy *prometheus.GaugeVec
 }
 
 func Init(reg prometheus.Registerer) *Metrics {
@@ -48,6 +50,25 @@ func Init(reg prometheus.Registerer) *Metrics {
 				},
 				[]string{"method", "path"},
 			),
+
+			ActiveRequests: factory.NewGauge(
+				prometheus.GaugeOpts{
+					Namespace: "janusgate",
+					Subsystem: "http",
+					Name:      "active_requests",
+					Help:      "Current number of active requests in progress.",
+				},
+			),
+
+			UpstreamHealthy: factory.NewGaugeVec(
+				prometheus.GaugeOpts{
+					Namespace: "janusgate",
+					Subsystem: "upstream",
+					Name:      "healthy",
+					Help:      "Health status of upstreams (1 for healthy/up, 0 for unhealthy/down).",
+				},
+				[]string{"route_id", "target_url"},
+			),
 		}
 	})
 
@@ -74,6 +95,31 @@ func (m *Metrics) ObserveRequestDuration(method, path string, duration time.Dura
 		return
 	}
 	m.RequestDuration.WithLabelValues(method, sanitizePathLabel(path)).Observe(duration.Seconds())
+}
+
+func (m *Metrics) IncActiveRequests() {
+	if m == nil || m.ActiveRequests == nil {
+		return
+	}
+	m.ActiveRequests.Inc()
+}
+
+func (m *Metrics) DecActiveRequests() {
+	if m == nil || m.ActiveRequests == nil {
+		return
+	}
+	m.ActiveRequests.Dec()
+}
+
+func (m *Metrics) SetUpstreamHealth(routeID, targetURL string, isHealthy bool) {
+	if m == nil || m.UpstreamHealthy == nil {
+		return
+	}
+	var val float64
+	if isHealthy {
+		val = 1.0
+	}
+	m.UpstreamHealthy.WithLabelValues(routeID, targetURL).Set(val)
 }
 
 func sanitizePathLabel(path string) string {

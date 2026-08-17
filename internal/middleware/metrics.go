@@ -42,6 +42,9 @@ func Metrics(m *metrics.Metrics) Middleware {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			m.IncActiveRequests()
+			defer m.DecActiveRequests()
+
 			start := time.Now()
 			rw := newResponseWriter(w)
 
