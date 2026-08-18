@@ -20,7 +20,11 @@ func Trace() Middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 
-			spanName := fmt.Sprintf("HTTP %s %s", r.Method, r.URL.Path)
+			pathPattern := r.Pattern
+			if pathPattern == "" {
+				pathPattern = "unknown_route"
+			}
+			spanName := fmt.Sprintf("HTTP %s %s", r.Method, pathPattern)
 
 			ctx, span := tracer.Start(
 				ctx,
@@ -29,20 +33,26 @@ func Trace() Middleware {
 				trace.WithAttributes(
 					semconv.HTTPRequestMethodKey.String(r.Method),
 					semconv.URLPathKey.String(r.URL.Path),
+					semconv.HTTPRouteKey.String(pathPattern),
 					semconv.UserAgentOriginalKey.String(r.UserAgent()),
-					semconv.ClientAddressKey.String(r.RemoteAddr),
+					semconv.ClientAddressKey.String(extractClientIP(r)),
 				),
 			)
 			defer span.End()
 
-			rw := newResponseWriter(w)
+			rw := getRecorder(w)
 
 			next.ServeHTTP(rw, r.WithContext(ctx))
 
-			span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(rw.statusCode))
+			status := rw.StatusCode
+			if status == 0 {
+				status = http.StatusOK
+			}
 
-			if rw.statusCode >= 500 {
-				span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d error", rw.statusCode))
+			span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(status))
+
+			if status >= 500 {
+				span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d error", status))
 			} else {
 				span.SetStatus(codes.Ok, "OK")
 			}
