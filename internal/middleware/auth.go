@@ -62,6 +62,10 @@ func Authenticate(tokenMgr auth.TokenManager) Middleware {
 
 			r.Header.Del("Authorization")
 
+			r.Header.Del("X-User-Id")
+			r.Header.Del("X-User-Name")
+			r.Header.Del("X-User-Roles")
+
 			r.Header.Set("X-User-Id", claims.UserID)
 			r.Header.Set("X-User-Name", claims.Username)
 			if len(claims.Roles) > 0 {
