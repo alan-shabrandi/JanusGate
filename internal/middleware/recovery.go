@@ -23,6 +23,10 @@ func Recovery(next http.Handler) http.Handler {
 					slog.String("stack_trace", stackTrace),
 				)
 
+				if rec := getRecorder(w); rec != nil && rec.StatusCode != 0 {
+					return
+				}
+
 				WriteJSONError(w, r, http.StatusInternalServerError, "An unexpected internal error occurred.")
 			}
 		}()
