@@ -241,8 +241,10 @@ func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func getClientIP(req *http.Request) string {
 	if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
+		if idx := strings.IndexByte(xff, ','); idx != -1 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
 	}
 	if xreal := req.Header.Get("X-Real-IP"); xreal != "" {
 		return strings.TrimSpace(xreal)
@@ -255,7 +257,7 @@ func isMethodAllowed(allowedMethods []string, reqMethod string) bool {
 		return true
 	}
 	for _, m := range allowedMethods {
-		if strings.EqualFold(m, reqMethod) {
+		if m == reqMethod || strings.EqualFold(m, reqMethod) {
 			return true
 		}
 	}
