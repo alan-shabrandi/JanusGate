@@ -7,34 +7,6 @@ import (
 	"janusgate/internal/metrics"
 )
 
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-	written    bool
-}
-
-func newResponseWriter(w http.ResponseWriter) *responseWriter {
-	return &responseWriter{
-		ResponseWriter: w,
-		statusCode:     http.StatusOK,
-	}
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	if !rw.written {
-		rw.statusCode = code
-		rw.written = true
-		rw.ResponseWriter.WriteHeader(code)
-	}
-}
-
-func (rw *responseWriter) Write(b []byte) (int, error) {
-	if !rw.written {
-		rw.written = true
-	}
-	return rw.ResponseWriter.Write(b)
-}
-
 func Metrics(m *metrics.Metrics) Middleware {
 	if m == nil {
 		m = metrics.Get()
@@ -46,15 +18,24 @@ func Metrics(m *metrics.Metrics) Middleware {
 			defer m.DecActiveRequests()
 
 			start := time.Now()
-			rw := newResponseWriter(w)
 
+			rw := getRecorder(w)
 			next.ServeHTTP(rw, r)
 
 			duration := time.Since(start)
-			path := r.URL.Path
 
-			m.IncRequestsTotal(r.Method, path, rw.statusCode)
-			m.ObserveRequestDuration(r.Method, path, duration)
+			status := rw.StatusCode
+			if status == 0 {
+				status = http.StatusOK
+			}
+
+			pathPattern := r.Pattern
+			if pathPattern == "" {
+				pathPattern = "unknown_route"
+			}
+
+			m.IncRequestsTotal(r.Method, pathPattern, status)
+			m.ObserveRequestDuration(r.Method, pathPattern, duration)
 		})
 	}
 }
