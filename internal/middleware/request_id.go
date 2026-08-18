@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -21,12 +22,12 @@ func RequestID() Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			reqID := r.Header.Get(HeaderXRequestID)
-			if reqID == "" {
+
+			if reqID == "" || len(reqID) > 64 || !isValidRequestID(reqID) {
 				reqID = uuid.New().String()
 			}
 
 			r.Header.Set(HeaderXRequestID, reqID)
-
 			w.Header().Set(HeaderXRequestID, reqID)
 
 			ctx := context.WithValue(r.Context(), RequestIDKey, reqID)
@@ -41,4 +42,13 @@ func GetRequestID(ctx context.Context) string {
 		return id
 	}
 	return ""
+}
+
+func isValidRequestID(id string) bool {
+	for _, c := range id {
+		if c < 32 || c > 126 {
+			return false
+		}
+	}
+	return !strings.ContainsAny(id, "<>\"'\\")
 }
