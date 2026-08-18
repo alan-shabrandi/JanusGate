@@ -5,6 +5,9 @@ import "net/http"
 type Middleware func(http.Handler) http.Handler
 
 func Chain(h http.Handler, middlewares ...Middleware) http.Handler {
+	if h == nil {
+		h = http.NotFoundHandler()
+	}
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		h = middlewares[i](h)
 	}
