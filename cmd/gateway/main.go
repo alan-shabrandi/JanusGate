@@ -18,32 +18,12 @@ import (
 	"janusgate/internal/middleware"
 	"janusgate/internal/ratelimit"
 	"janusgate/internal/router"
-	"janusgate/internal/telemetry"
 	"janusgate/internal/upstream"
 )
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	jaegerEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	if jaegerEndpoint == "" {
-		jaegerEndpoint = "localhost:4317"
-	}
-
-	shutdownTracer, err := telemetry.InitTracer(ctx, "janusgate-gateway", jaegerEndpoint)
-	if err != nil {
-		slog.Warn("Failed to initialize OpenTelemetry tracer, running without Jaeger", "error", err)
-	} else {
-		slog.Info("OpenTelemetry tracer successfully connected to Jaeger", "endpoint", jaegerEndpoint)
-		defer func() {
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer shutdownCancel()
-			if err := shutdownTracer(shutdownCtx); err != nil {
-				slog.Error("Failed to gracefully shutdown tracer", "error", err)
-			}
-		}()
-	}
 
 	pprofAddr := "localhost:6060"
 	pprofServer := &http.Server{
@@ -147,7 +127,7 @@ func main() {
 		switch sig {
 		case syscall.SIGHUP:
 			slog.Info("SIGHUP received, reloading configuration...")
-			newCfg, err := mgr.Reload("config.yaml")
+			newCfg, err := mgr.Reload()
 			if err != nil {
 				slog.Error("Failed to reload config on SIGHUP", "error", err)
 				continue
