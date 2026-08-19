@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+
+	//nolint:gosec // Profiling endpoint enabled intentionally for gateway debugging
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -68,7 +70,9 @@ func main() {
 		slog.Error("Failed to initialize Redis rate limiter", "error", err)
 		os.Exit(1)
 	}
-	defer redisLimiter.Close()
+	defer func() {
+		_ = redisLimiter.Close()
+	}()
 
 	rt := router.NewRouter(cfg.Routes, jwtMgr, registry)
 
@@ -87,7 +91,9 @@ func main() {
 		if err != nil {
 			slog.Error("Failed to start background watcher", "error", err)
 		} else {
-			defer watcher.Stop()
+			defer func() {
+				_ = watcher.Stop()
+			}()
 		}
 	}
 

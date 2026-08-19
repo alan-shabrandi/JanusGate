@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -68,7 +69,9 @@ func TestCoreIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to init RedisLimiter: %v", err)
 	}
-	defer redisLimiter.Close()
+	defer func() {
+		_ = redisLimiter.Close()
+	}()
 
 	rt := router.NewRouter(cfg.Routes, jwtMgr, registry)
 
@@ -93,7 +96,9 @@ func TestCoreIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("HTTP request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("Expected 401 Unauthorized, got %d", resp.StatusCode)
@@ -106,7 +111,9 @@ func TestCoreIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("HTTP request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected 200 OK, got %d", resp.StatusCode)
@@ -121,15 +128,19 @@ func TestCoreIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("HTTP request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected 200 OK, got %d", resp.StatusCode)
 		}
 
-		buf := make([]byte, 1024)
-		n, _ := resp.Body.Read(buf)
-		receivedPath := string(buf[:n])
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("Failed to read response body: %v", err)
+		}
+		receivedPath := string(bodyBytes)
 
 		if receivedPath != "/profile" {
 			t.Errorf("Expected upstream to receive path '/profile', got '%s'", receivedPath)
@@ -149,7 +160,7 @@ func TestCoreIntegration(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Request %d failed: %v", i+1, err)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("Request %d expected 200 OK, got %d", i+1, resp.StatusCode)
@@ -161,7 +172,9 @@ func TestCoreIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("6th request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		if resp.StatusCode != http.StatusTooManyRequests {
 			t.Errorf("Expected 429 Too Many Requests, got %d", resp.StatusCode)

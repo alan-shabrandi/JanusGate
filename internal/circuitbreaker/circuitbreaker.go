@@ -9,10 +9,7 @@ import (
 	"github.com/sony/gobreaker"
 )
 
-var (
-	ErrCircuitOpen = errors.New("circuit breaker is open")
-	errUpstream5xx = errors.New("upstream returned 5xx status")
-)
+var ErrCircuitOpen = errors.New("circuit breaker is open")
 
 type Config struct {
 	Name               string
@@ -40,8 +37,15 @@ func NewTransport(cfg Config, next http.RoundTripper) *Transport {
 		Timeout:     cfg.Timeout,
 
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			if counts.Requests < cfg.MinRequestsToTrip {
+				return false
+			}
 			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
-			return counts.Requests >= cfg.MinRequestsToTrip && failureRatio >= cfg.FailureRatioToTrip
+			return failureRatio >= cfg.FailureRatioToTrip
+		},
+
+		IsSuccessful: func(err error) bool {
+			return err == nil
 		},
 
 		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
@@ -60,17 +64,22 @@ func NewTransport(cfg Config, next http.RoundTripper) *Transport {
 }
 
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	result, err := t.cb.Execute(func() (interface{}, error) {
+	var httpResp *http.Response
+
+	_, err := t.cb.Execute(func() (interface{}, error) {
+		//nolint:bodyclose // The body is intentionally passed to the caller via httpResp to close.
 		resp, err := t.next.RoundTrip(req)
 		if err != nil {
 			return nil, err
 		}
 
+		httpResp = resp
+
 		if resp.StatusCode >= http.StatusInternalServerError {
-			return resp, errUpstream5xx
+			return nil, errors.New("upstream 5xx")
 		}
 
-		return resp, nil
+		return nil, nil
 	})
 
 	if err != nil {
@@ -78,19 +87,12 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, ErrCircuitOpen
 		}
 
-		if errors.Is(err, errUpstream5xx) {
-			if resp, ok := result.(*http.Response); ok {
-				return resp, nil
-			}
-			return nil, err
+		if httpResp != nil {
+			return httpResp, nil
 		}
 
 		return nil, err
 	}
 
-	if resp, ok := result.(*http.Response); ok {
-		return resp, nil
-	}
-
-	return nil, errors.New("unexpected result type from circuit breaker")
+	return httpResp, nil
 }

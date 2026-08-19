@@ -41,7 +41,10 @@ func (b *ipHashBalancer) NextWithKey(servers []*upstream.Server, clientIP string
 	_, _ = h.Write([]byte(cleanIP))
 	hashValue := h.Sum32()
 
-	idx := int(hashValue % uint32(len(servers)))
+	idx := int(hashValue) % len(servers)
+	if idx < 0 {
+		idx = -idx
+	}
 	return servers[idx], nil
 }
 

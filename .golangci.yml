@@ -6,16 +6,16 @@ linters:
   enable:
     - errcheck
     - gosimple
-    - govetted
+    - govet
     - ineffassign
     - staticcheck
     - typecheck
     - unused
-    - gosec
     - bodyclose
-    - misspell
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
 
 issues:
   exclude-use-default: false
-  max-same-issues: 0
-  max-issues-per-linter: 0

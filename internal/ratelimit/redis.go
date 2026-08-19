@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+//nolint:gosec // False positive: script variable contains "token" keyword
 const tokenBucketLuaScript = `
 local key = KEYS[1]
 local limit = tonumber(ARGV[1])

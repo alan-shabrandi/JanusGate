@@ -74,7 +74,9 @@ func TestResilienceIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected status 200 OK after retries, got %d", resp.StatusCode)
@@ -124,7 +126,7 @@ func TestResilienceIntegration(t *testing.T) {
 			req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/resilient/test", nil)
 			resp, err := http.DefaultClient.Do(req)
 			if err == nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 		}
 

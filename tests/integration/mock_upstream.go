@@ -38,7 +38,7 @@ func NewMockUpstream(t *testing.T) *MockUpstream {
 
 		w.WriteHeader(mock.statusCode)
 
-		_, _ = w.Write([]byte(r.URL.Path))
+		_, _ = w.Write([]byte(r.URL.Path)) //nolint:gosec
 	})
 
 	server := httptest.NewServer(handler)

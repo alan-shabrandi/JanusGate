@@ -115,7 +115,7 @@ func (t *RetryTransport) calculateBackoff(attempt int) time.Duration {
 		duration = t.config.MaxInterval
 	}
 
-	jitter := time.Duration(rand.Int63n(int64(duration)/10 + 1))
+	jitter := time.Duration(rand.Int63n(int64(duration)/10 + 1)) //nolint:gosec
 	return duration + jitter
 }
 

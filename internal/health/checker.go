@@ -104,7 +104,10 @@ func (c *Checker) checkUpstream(ctx context.Context, targetURL string) {
 		c.updateState(targetURL, false, err.Error())
 		return
 	}
-	defer resp.Body.Close()
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	_, _ = io.Copy(io.Discard, resp.Body)
 
