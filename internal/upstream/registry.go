@@ -120,3 +120,14 @@ func (r *Registry) GetAllStatuses() map[string]ServerSnapshot {
 	}
 	return snapshot
 }
+
+func (r *Registry) IsHealthy(targetURL string) bool {
+	r.mu.RLock()
+	server, exists := r.servers[targetURL]
+	r.mu.RUnlock()
+
+	if !exists {
+		return false
+	}
+	return server.IsHealthy.Load()
+}

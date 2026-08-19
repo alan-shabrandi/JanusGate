@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"path"
 	"strings"
 	"sync/atomic"
@@ -116,37 +117,74 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 				return
 			}
 
-			healthyServers := r.registry.GetHealthyServers(routeID)
-			if len(healthyServers) == 0 {
-				writeJSONError(w, http.StatusServiceUnavailable, "Service Unavailable", "No healthy upstream servers available for this route", req.URL.Path)
-				return
+			maxAttempts := 1
+			if route.Retry.Attempts > 0 {
+				maxAttempts = route.Retry.Attempts + 1
 			}
 
-			var selectedServer *upstream.Server
-			var err error
+			triedServers := make(map[string]bool)
 
-			if keyedBalancer, ok := balancer.(loadbalance.KeyedBalancer); ok {
-				clientIP := getClientIP(req)
-				selectedServer, err = keyedBalancer.NextWithKey(healthyServers, clientIP)
-			} else {
-				selectedServer, err = balancer.Next(healthyServers)
+			for attempt := 0; attempt < maxAttempts; attempt++ {
+				healthyServers := r.registry.GetHealthyServers(routeID)
+
+				var availableServers []*upstream.Server
+				for _, srv := range healthyServers {
+					if !triedServers[srv.URL] {
+						availableServers = append(availableServers, srv)
+					}
+				}
+
+				if len(availableServers) == 0 {
+					if attempt > 0 {
+						break
+					}
+					writeJSONError(w, http.StatusServiceUnavailable, "Service Unavailable", "No healthy upstream servers available for this route", req.URL.Path)
+					return
+				}
+
+				var selectedServer *upstream.Server
+				var err error
+
+				if keyedBalancer, ok := balancer.(loadbalance.KeyedBalancer); ok {
+					clientIP := getClientIP(req)
+					selectedServer, err = keyedBalancer.NextWithKey(availableServers, clientIP)
+				} else {
+					selectedServer, err = balancer.Next(availableServers)
+				}
+
+				if err != nil || selectedServer == nil {
+					writeJSONError(w, http.StatusServiceUnavailable, "Service Unavailable", "Failed to select healthy upstream server", req.URL.Path)
+					return
+				}
+
+				handler, ok := upstreamProxies[selectedServer.URL]
+				if !ok {
+					writeJSONError(w, http.StatusBadGateway, "Bad Gateway", "Selected upstream handler not found", req.URL.Path)
+					return
+				}
+
+				triedServers[selectedServer.URL] = true
+
+				rec := httptest.NewRecorder()
+				selectedServer.ActiveConns.Add(1)
+				handler.ServeHTTP(rec, req)
+				selectedServer.ActiveConns.Add(-1)
+
+				if rec.Code < 500 || attempt == maxAttempts-1 {
+					for k, v := range rec.Header() {
+						w.Header()[k] = v
+					}
+					w.WriteHeader(rec.Code)
+					_, _ = w.Write(rec.Body.Bytes())
+					return
+				}
+
+				if route.Retry.InitialInterval > 0 {
+					time.Sleep(route.Retry.InitialInterval)
+				}
 			}
 
-			if err != nil || selectedServer == nil {
-				writeJSONError(w, http.StatusServiceUnavailable, "Service Unavailable", "Failed to select healthy upstream server", req.URL.Path)
-				return
-			}
-
-			handler, ok := upstreamProxies[selectedServer.URL]
-			if !ok {
-				writeJSONError(w, http.StatusBadGateway, "Bad Gateway", "Selected upstream handler not found", req.URL.Path)
-				return
-			}
-
-			selectedServer.ActiveConns.Add(1)
-			defer selectedServer.ActiveConns.Add(-1)
-
-			handler.ServeHTTP(w, req)
+			writeJSONError(w, http.StatusBadGateway, "Bad Gateway", "All retries to upstream servers failed", req.URL.Path)
 		})
 
 		if route.StripPrefix {

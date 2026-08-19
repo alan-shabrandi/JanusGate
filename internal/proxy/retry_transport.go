@@ -99,9 +99,7 @@ func (t *RetryTransport) isRetryable(method string, resp *http.Response, err err
 		return true
 	}
 
-	if resp != nil && (resp.StatusCode == http.StatusBadGateway ||
-		resp.StatusCode == http.StatusServiceUnavailable ||
-		resp.StatusCode == http.StatusGatewayTimeout) {
+	if resp != nil && resp.StatusCode >= 500 {
 		return true
 	}
 
