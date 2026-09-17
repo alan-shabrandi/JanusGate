@@ -42,11 +42,11 @@ func GetUserRoles(ctx context.Context) ([]string, bool) {
 }
 
 func HasRole(ctx context.Context, role string) bool {
-	roles, ok := GetUserRoles(ctx)
+	claims, ok := GetUserClaims(ctx)
 	if !ok {
 		return false
 	}
-	for _, r := range roles {
+	for _, r := range claims.Roles {
 		if strings.EqualFold(r, role) {
 			return true
 		}
