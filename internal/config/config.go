@@ -3,12 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 )
 
@@ -74,10 +72,6 @@ type RetryConfig struct {
 	MaxInterval     time.Duration `mapstructure:"max_interval" json:"max_interval" yaml:"max_interval"`
 }
 
-type Manager struct {
-	v *viper.Viper
-}
-
 func Load(configPath string) (*Config, *Manager, error) {
 	v := viper.New()
 
@@ -114,30 +108,12 @@ func Load(configPath string) (*Config, *Manager, error) {
 		return nil, nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	return &cfg, &Manager{v: v}, nil
-}
+	mgr := &Manager{
+		v:          v,
+		configPath: configPath,
+	}
 
-func (m *Manager) Watch(onChange func(cfg *Config)) {
-	m.v.OnConfigChange(func(e fsnotify.Event) {
-		slog.Info("Configuration file change detected", "file", e.Name)
-
-		var newCfg Config
-		if err := m.v.Unmarshal(&newCfg); err != nil {
-			slog.Error("Failed to unmarshal new config during hot-reload", "error", err)
-			return
-		}
-
-		applyDynamicDefaults(&newCfg)
-
-		if err := validateConfig(&newCfg); err != nil {
-			slog.Error("Invalid configuration detected during hot-reload. Changes ignored.", "error", err)
-			return
-		}
-
-		slog.Info("Configuration successfully reloaded")
-		onChange(&newCfg)
-	})
-	m.v.WatchConfig()
+	return &cfg, mgr, nil
 }
 
 func setStaticDefaults(v *viper.Viper) {
@@ -218,8 +194,9 @@ func validateConfig(cfg *Config) error {
 			if upstream.URL == "" {
 				return fmt.Errorf("upstream [%d] in route (%s): URL cannot be empty", j, route.ID)
 			}
-			if _, err := url.ParseRequestURI(upstream.URL); err != nil {
-				return fmt.Errorf("upstream [%d] in route (%s): invalid URL format '%s'", j, route.ID, upstream.URL)
+			parsedURL, err := url.Parse(upstream.URL)
+			if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+				return fmt.Errorf("upstream [%d] in route (%s): invalid URL format '%s' (must include scheme and host)", j, route.ID, upstream.URL)
 			}
 		}
 	}
