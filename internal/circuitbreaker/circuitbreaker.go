@@ -2,6 +2,7 @@ package circuitbreaker
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -26,6 +27,10 @@ type Transport struct {
 }
 
 func NewTransport(cfg Config, next http.RoundTripper) *Transport {
+	if next == nil {
+		next = http.DefaultTransport
+	}
+
 	if cfg.Interval == 0 {
 		cfg.Interval = 60 * time.Second
 	}
@@ -67,7 +72,6 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var httpResp *http.Response
 
 	_, err := t.cb.Execute(func() (interface{}, error) {
-		//nolint:bodyclose // The body is intentionally passed to the caller via httpResp to close.
 		resp, err := t.next.RoundTrip(req)
 		if err != nil {
 			return nil, err
@@ -76,7 +80,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		httpResp = resp
 
 		if resp.StatusCode >= http.StatusInternalServerError {
-			return nil, errors.New("upstream 5xx")
+			return nil, fmt.Errorf("upstream 5xx status: %d", resp.StatusCode)
 		}
 
 		return nil, nil
