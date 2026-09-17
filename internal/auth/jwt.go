@@ -9,17 +9,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type TokenValidator interface {
-	ValidateToken(tokenStr string) (Claims, error)
-}
-
-type jwtManager struct {
+type JWTManager struct {
 	secretKey []byte
 	issuer    string
 	parser    *jwt.Parser
 }
 
-func NewJWTManager(secretKey, issuer string) (*jwtManager, error) {
+func NewJWTManager(secretKey, issuer string) (*JWTManager, error) {
 	if len(secretKey) < 32 {
 		return nil, errors.New("secret key must be at least 32 bytes for HS256")
 	}
@@ -28,7 +24,7 @@ func NewJWTManager(secretKey, issuer string) (*jwtManager, error) {
 		issuer = "janusgate"
 	}
 
-	return &jwtManager{
+	return &JWTManager{
 		secretKey: []byte(secretKey),
 		issuer:    issuer,
 		parser: jwt.NewParser(
@@ -39,7 +35,7 @@ func NewJWTManager(secretKey, issuer string) (*jwtManager, error) {
 	}, nil
 }
 
-func (m *jwtManager) GenerateToken(userID, username string, roles []string, duration time.Duration) (string, error) {
+func (m *JWTManager) GenerateToken(userID, username string, roles []string, duration time.Duration) (string, error) {
 	now := time.Now().UTC()
 	claims := Claims{
 		UserID:   userID,
@@ -50,7 +46,6 @@ func (m *jwtManager) GenerateToken(userID, username string, roles []string, dura
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    m.issuer,
-			// ID: uuid.NewString(),
 		},
 	}
 
@@ -63,7 +58,7 @@ func (m *jwtManager) GenerateToken(userID, username string, roles []string, dura
 	return signedToken, nil
 }
 
-func (m *jwtManager) ValidateToken(tokenStr string) (Claims, error) {
+func (m *JWTManager) ValidateToken(tokenStr string) (Claims, error) {
 	var claims Claims
 
 	token, err := m.parser.ParseWithClaims(tokenStr, &claims, func(token *jwt.Token) (interface{}, error) {
