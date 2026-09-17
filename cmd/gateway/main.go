@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 
-	//nolint:gosec // Profiling endpoint enabled intentionally for gateway debugging
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -24,24 +24,26 @@ import (
 )
 
 func main() {
+	configPath := flag.String("config", "config.yaml", "Path to configuration file")
+	pprofAddr := flag.String("pprof", "localhost:6060", "Address for pprof server")
+	flag.Parse()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pprofAddr := "localhost:6060"
 	pprofServer := &http.Server{
-		Addr:              pprofAddr,
+		Addr:              *pprofAddr,
 		Handler:           http.DefaultServeMux,
 		ReadHeaderTimeout: 3 * time.Second,
 	}
-
 	go func() {
-		slog.Info("Starting Internal Profiling Server (pprof)...", "addr", pprofAddr)
+		slog.Info("Starting Internal Profiling Server (pprof)...", "addr", *pprofAddr)
 		if err := pprofServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Warn("Internal pprof server stopped unexpectedly", "error", err)
 		}
 	}()
 
-	cfg, mgr, err := config.Load("config.yaml")
+	cfg, mgr, err := config.Load(*configPath)
 	if err != nil {
 		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
@@ -70,31 +72,25 @@ func main() {
 		slog.Error("Failed to initialize Redis rate limiter", "error", err)
 		os.Exit(1)
 	}
-	defer func() {
-		_ = redisLimiter.Close()
-	}()
+	defer func() { _ = redisLimiter.Close() }()
 
 	rt := router.NewRouter(cfg.Routes, jwtMgr, registry)
 
-	watcher, err := config.NewBackgroundWatcher("config.yaml", mgr, holder)
-	if err != nil {
-		slog.Warn("Failed to initialize background config watcher", "error", err)
-	} else {
-		err = watcher.Start(ctx, func(newCfg *config.Config) {
-			if err := rt.LoadRoutes(newCfg.Routes); err != nil {
-				slog.Error("Failed to apply routes on hot reload", "error", err)
-				return
-			}
-			healthChecker.RegisterRoutesUpstreams(newCfg.Routes)
-			slog.Info("Routes and HealthChecker updated automatically via file watcher")
-		})
-		if err != nil {
-			slog.Error("Failed to start background watcher", "error", err)
-		} else {
-			defer func() {
-				_ = watcher.Stop()
-			}()
+	applyConfig := func(newCfg *config.Config) {
+		if err := rt.LoadRoutes(newCfg.Routes); err != nil {
+			slog.Error("Failed to apply routes on config reload", "error", err)
+			return
 		}
+		healthChecker.RegisterRoutesUpstreams(newCfg.Routes)
+		slog.Info("Routes and HealthChecker updated successfully")
+	}
+
+	if watcher, err := config.NewBackgroundWatcher(*configPath, mgr, holder); err != nil {
+		slog.Warn("Failed to initialize background config watcher", "error", err)
+	} else if err := watcher.Start(ctx, applyConfig); err != nil {
+		slog.Error("Failed to start background watcher", "error", err)
+	} else {
+		defer func() { _ = watcher.Stop() }()
 	}
 
 	globalChain := middleware.New(
@@ -128,8 +124,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
-	for {
-		sig := <-sigChan
+	for sig := range sigChan {
 		switch sig {
 		case syscall.SIGHUP:
 			slog.Info("SIGHUP received, reloading configuration...")
@@ -138,16 +133,8 @@ func main() {
 				slog.Error("Failed to reload config on SIGHUP", "error", err)
 				continue
 			}
-
 			holder.Update(newCfg)
-
-			if err := rt.LoadRoutes(newCfg.Routes); err != nil {
-				slog.Error("Failed to apply new routes on SIGHUP", "error", err)
-				continue
-			}
-
-			healthChecker.RegisterRoutesUpstreams(newCfg.Routes)
-			slog.Info("Configuration reloaded successfully via SIGHUP")
+			applyConfig(newCfg)
 
 		case syscall.SIGINT, syscall.SIGTERM:
 			slog.Info("Shutdown signal received. Shutting down JanusGate gracefully...")
@@ -158,7 +145,6 @@ func main() {
 
 			_ = pprofServer.Shutdown(shutdownCtx)
 			_ = metricsServer.Shutdown(shutdownCtx)
-
 			if err := server.Shutdown(shutdownCtx); err != nil {
 				slog.Error("Server forced to shutdown", "error", err)
 			}
