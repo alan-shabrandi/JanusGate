@@ -14,18 +14,26 @@ import (
 type OnConfigChangeFunc func(newCfg *Config)
 
 type BackgroundWatcher struct {
-	configPath string
-	manager    *Manager
-	holder     *Holder
-	watcher    *fsnotify.Watcher
-	mu         sync.Mutex
-	stopChan   chan struct{}
+	configPath    string
+	manager       *Manager
+	holder        *Holder
+	watcher       *fsnotify.Watcher
+	mu            sync.Mutex
+	stopChan      chan struct{}
+	debounceTimer *time.Timer
+	timerMu       sync.Mutex
 }
 
 func NewBackgroundWatcher(configPath string, manager *Manager, holder *Holder) (*BackgroundWatcher, error) {
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve absolute config path: %w", err)
+	}
+
+	// Resolve symlinks (e.g. Kubernetes ConfigMaps)
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err == nil {
+		absPath = realPath
 	}
 
 	watcher, err := fsnotify.NewWatcher()
@@ -55,10 +63,11 @@ func (bw *BackgroundWatcher) Start(ctx context.Context, onChange OnConfigChangeF
 }
 
 func (bw *BackgroundWatcher) watchLoop(ctx context.Context, onChange OnConfigChangeFunc) {
-	var (
-		debounceTimer *time.Timer
-		timerMu       sync.Mutex
-	)
+	defer func() {
+		bw.stopDebounceTimer()
+		_ = bw.watcher.Close()
+	}()
+
 	const debounceInterval = 150 * time.Millisecond
 
 	for {
@@ -74,16 +83,24 @@ func (bw *BackgroundWatcher) watchLoop(ctx context.Context, onChange OnConfigCha
 				return
 			}
 
-			if filepath.Clean(event.Name) != bw.configPath {
+			// Clean and resolve event path for atomic writes / symlinks
+			eventPath := filepath.Clean(event.Name)
+			realEventPath, err := filepath.EvalSymlinks(eventPath)
+			if err == nil {
+				eventPath = realEventPath
+			}
+
+			if eventPath != bw.configPath {
 				continue
 			}
 
-			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Rename) || event.Has(fsnotify.Remove) {
-				timerMu.Lock()
-				if debounceTimer != nil {
-					debounceTimer.Stop()
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Rename) {
+				bw.timerMu.Lock()
+				if bw.debounceTimer != nil {
+					bw.debounceTimer.Stop()
 				}
-				debounceTimer = time.AfterFunc(debounceInterval, func() {
+
+				bw.debounceTimer = time.AfterFunc(debounceInterval, func() {
 					slog.Info("Change detected in config file, re-parsing...", "file", event.Name)
 
 					newCfg, err := bw.manager.Reload()
@@ -102,7 +119,7 @@ func (bw *BackgroundWatcher) watchLoop(ctx context.Context, onChange OnConfigCha
 						onChange(newCfg)
 					}
 				})
-				timerMu.Unlock()
+				bw.timerMu.Unlock()
 			}
 
 		case err, ok := <-bw.watcher.Errors:
@@ -111,6 +128,15 @@ func (bw *BackgroundWatcher) watchLoop(ctx context.Context, onChange OnConfigCha
 			}
 			slog.Error("Config watcher event loop error", "error", err)
 		}
+	}
+}
+
+func (bw *BackgroundWatcher) stopDebounceTimer() {
+	bw.timerMu.Lock()
+	defer bw.timerMu.Unlock()
+	if bw.debounceTimer != nil {
+		bw.debounceTimer.Stop()
+		bw.debounceTimer = nil
 	}
 }
 
@@ -124,5 +150,7 @@ func (bw *BackgroundWatcher) Stop() error {
 	default:
 		close(bw.stopChan)
 	}
+
+	bw.stopDebounceTimer()
 	return bw.watcher.Close()
 }
