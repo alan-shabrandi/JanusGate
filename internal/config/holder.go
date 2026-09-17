@@ -12,12 +12,18 @@ func NewHolder(initial *Config) *Holder {
 	h := &Holder{}
 	if initial != nil {
 		h.ptr.Store(initial)
+	} else {
+		h.ptr.Store(&Config{})
 	}
 	return h
 }
 
 func (h *Holder) Get() *Config {
-	return h.ptr.Load()
+	cfg := h.ptr.Load()
+	if cfg == nil {
+		return &Config{}
+	}
+	return cfg
 }
 
 func (h *Holder) Update(newCfg *Config) {
