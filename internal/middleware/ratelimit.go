@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -48,10 +49,15 @@ func RateLimit(limiter ratelimit.RateLimiter, limit int, window time.Duration) M
 					"path", r.URL.Path,
 				)
 
-				retryAfterSeconds := int(window.Seconds())
+				// Calculate exact time to refill 1 token instead of whole window
+				refillRatePerSec := float64(limit) / window.Seconds()
+				secondsPerToken := 1.0 / refillRatePerSec
+				retryAfterSeconds := int(math.Ceil(secondsPerToken))
+
 				if retryAfterSeconds <= 0 {
 					retryAfterSeconds = 1
 				}
+
 				w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds))
 
 				WriteJSONError(w, r, http.StatusTooManyRequests, "Rate limit exceeded. Please slow down and try again later.")
