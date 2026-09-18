@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-type RateLimiter interface {
-	Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, int, error)
-	Close() error
+type Limiter interface {
+	Allow(ctx context.Context, key string, limit int64, window time.Duration) (bool, time.Duration, error)
 }
