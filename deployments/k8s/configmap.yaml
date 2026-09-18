@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: janusgate-config
+  namespace: default
+data:
+  config.yaml: |
+    server:
+      port: 8080
+      read_timeout: 5s
+      write_timeout: 10s
+
+    redis:
+      addr: "redis-service:6379"
+      password: ""
+      db: 0  
+
+    routes:
+      - path_prefix: "/api/v1/users"
+        strip_prefix: true
+        rate_limit:
+          enabled: true
+          requests_per_second: 100
+        upstreams:
+          - url: "http://user-service:8081"
+            weight: 1
+        load_balancer: "least_connections"
