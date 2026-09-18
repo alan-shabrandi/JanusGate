@@ -227,6 +227,11 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 }
 
 func (r *memoryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if req.URL.Path == "/healthz" || req.URL.Path == "/health" {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+		return
+	}
 	routesPtr := r.routes.Load()
 	if routesPtr == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "Service Unavailable", "Gateway is initializing", req.URL.Path)
