@@ -36,7 +36,7 @@ func BenchmarkRouter_ServeHTTP_ExactMatch(b *testing.B) {
 			Upstreams:  []config.UpstreamConfig{{URL: "http://127.0.0.1:8080"}},
 		},
 	}
-	r := router.NewRouter(routes, nil, nil)
+	r := router.NewRouter(routes, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 
 	b.ReportAllocs()
@@ -58,7 +58,7 @@ func BenchmarkRouter_ServeHTTP_PrefixMatch(b *testing.B) {
 			Upstreams:  []config.UpstreamConfig{{URL: "http://127.0.0.1:8080"}},
 		},
 	}
-	r := router.NewRouter(routes, nil, nil)
+	r := router.NewRouter(routes, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/12345/profile", nil)
 
 	b.ReportAllocs()
@@ -80,7 +80,7 @@ func BenchmarkRouter_ServeHTTP_NotFound(b *testing.B) {
 			Upstreams:  []config.UpstreamConfig{{URL: "http://127.0.0.1:8080"}},
 		},
 	}
-	r := router.NewRouter(routes, nil, nil)
+	r := router.NewRouter(routes, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/not-found", nil)
 
 	b.ReportAllocs()
@@ -102,7 +102,7 @@ func BenchmarkRouter_ServeHTTP_MethodNotAllowed(b *testing.B) {
 			Upstreams:  []config.UpstreamConfig{{URL: "http://127.0.0.1:8080"}},
 		},
 	}
-	r := router.NewRouter(routes, nil, nil)
+	r := router.NewRouter(routes, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 
 	b.ReportAllocs()

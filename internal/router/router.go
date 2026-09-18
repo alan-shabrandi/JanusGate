@@ -18,6 +18,7 @@ import (
 	"janusgate/internal/loadbalance"
 	"janusgate/internal/middleware"
 	"janusgate/internal/proxy"
+	"janusgate/internal/ratelimit"
 	"janusgate/internal/upstream"
 )
 
@@ -48,12 +49,14 @@ type memoryRouter struct {
 	routes   atomic.Pointer[[]routeEntry]
 	tokenMgr auth.TokenManager
 	registry *upstream.Registry
+	limiter  ratelimit.RateLimiter
 }
 
-func NewRouter(routes []config.RouteConfig, tokenMgr auth.TokenManager, reg *upstream.Registry) Router {
+func NewRouter(routes []config.RouteConfig, tokenMgr auth.TokenManager, reg *upstream.Registry, limiter ratelimit.RateLimiter) Router {
 	r := &memoryRouter{
 		tokenMgr: tokenMgr,
 		registry: reg,
+		limiter:  limiter,
 	}
 
 	if err := r.LoadRoutes(routes); err != nil {
@@ -193,6 +196,10 @@ func (r *memoryRouter) LoadRoutes(routes []config.RouteConfig) error {
 
 		pipeline := middleware.New()
 		pipeline = pipeline.Use(middleware.Timeout(route.Timeout))
+
+		if r.limiter != nil && route.RateLimit.Enabled && route.RateLimit.RequestsPerSecond > 0 {
+			pipeline = pipeline.Use(middleware.RateLimit(r.limiter, route.RateLimit.RequestsPerSecond, time.Second))
+		}
 
 		if route.RequiresAuth {
 			if r.tokenMgr == nil {
