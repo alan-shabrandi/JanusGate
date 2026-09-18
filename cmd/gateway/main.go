@@ -74,7 +74,7 @@ func main() {
 	}
 	defer func() { _ = redisLimiter.Close() }()
 
-	rt := router.NewRouter(cfg.Routes, jwtMgr, registry)
+	rt := router.NewRouter(cfg.Routes, jwtMgr, registry, redisLimiter)
 
 	applyConfig := func(newCfg *config.Config) {
 		if err := rt.LoadRoutes(newCfg.Routes); err != nil {
@@ -99,7 +99,6 @@ func main() {
 		middleware.Trace(),
 		middleware.Logger,
 		middleware.Metrics(m),
-		middleware.RateLimit(redisLimiter, 60, time.Minute),
 	)
 	serverHandler := globalChain.Then(rt)
 

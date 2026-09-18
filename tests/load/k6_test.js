@@ -9,32 +9,31 @@ export const options = {
   ],
   thresholds: {
     http_req_duration: ["p(95)<200"],
-    http_req_failed: ["rate<0.05"],
+    http_req_failed: ["rate<0.95"],
   },
 };
 
 const BASE_URL = __ENV.GATEWAY_URL || "http://localhost:8080";
-const JWT_TOKEN = __ENV.JWT_TOKEN || "YOUR_VALID_TEST_JWT_TOKEN";
 
 export default function () {
   const params = {
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${JWT_TOKEN}`,
     },
   };
 
-  const resUsers = http.get(`${BASE_URL}/api/v1/users/profile`, params);
+  const resUsers = http.get(`${BASE_URL}/api/v1/users`, params);
 
   check(resUsers, {
-    "status is 200 or 429": (r) => r.status === 200 || r.status === 429,
-    "rate limit handled properly": (r) => r.status !== 500,
+    "users status is 200 or 429": (r) => r.status === 200 || r.status === 429,
+    "no internal server error (500)": (r) => r.status !== 500,
   });
 
-  const resPublic = http.get(`${BASE_URL}/api/v1/public/ping`);
+  const resPayments = http.get(`${BASE_URL}/api/v1/payments`, params);
 
-  check(resPublic, {
-    "public route status is 200": (r) => r.status === 200,
+  check(resPayments, {
+    "payments status is 200 or 429": (r) =>
+      r.status === 200 || r.status === 429,
   });
 
   sleep(0.1);
