@@ -51,7 +51,7 @@ func TestResilienceIntegration(t *testing.T) {
 	}
 
 	jwtMgr, _ := auth.NewJWTManager(cfg.Auth.JWTSecret, "")
-	rt := router.NewRouter(cfg.Routes, jwtMgr, registry)
+	rt := router.NewRouter(cfg.Routes, jwtMgr, registry, nil)
 
 	globalChain := middleware.New(
 		middleware.Recovery,

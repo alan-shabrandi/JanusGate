@@ -73,7 +73,7 @@ func TestCoreIntegration(t *testing.T) {
 		_ = redisLimiter.Close()
 	}()
 
-	rt := router.NewRouter(cfg.Routes, jwtMgr, registry)
+	rt := router.NewRouter(cfg.Routes, jwtMgr, registry, redisLimiter)
 
 	globalChain := middleware.New(
 		middleware.Recovery,
