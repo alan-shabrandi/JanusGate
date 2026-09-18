@@ -36,18 +36,19 @@ type AuthConfig struct {
 }
 
 type RouteConfig struct {
-	ID             string               `mapstructure:"id" json:"id" yaml:"id"`
-	PathPrefix     string               `mapstructure:"path_prefix" json:"path_prefix" yaml:"path_prefix"`
-	MatchType      string               `mapstructure:"match_type" json:"match_type" yaml:"match_type"`
-	Methods        []string             `mapstructure:"methods" json:"methods" yaml:"methods"`
-	StripPrefix    bool                 `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
-	RequiresAuth   bool                 `mapstructure:"requires_auth" json:"requires_auth" yaml:"requires_auth"`
-	RateLimit      RateLimitConfig      `mapstructure:"rate_limit" json:"rate_limit" yaml:"rate_limit"`
-	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker" json:"circuit_breaker" yaml:"circuit_breaker"`
-	Timeout        time.Duration        `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
-	LBStrategy     string               `mapstructure:"lb_strategy" json:"lb_strategy" yaml:"lb_strategy"`
-	Retry          RetryConfig          `mapstructure:"retry" json:"retry" yaml:"retry"`
-	Upstreams      []UpstreamConfig     `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`
+	ID                string               `mapstructure:"id" json:"id" yaml:"id"`
+	PathPrefix        string               `mapstructure:"path_prefix" json:"path_prefix" yaml:"path_prefix"`
+	MatchType         string               `mapstructure:"match_type" json:"match_type" yaml:"match_type"`
+	Methods           []string             `mapstructure:"methods" json:"methods" yaml:"methods"`
+	StripPrefix       bool                 `mapstructure:"strip_prefix" json:"strip_prefix" yaml:"strip_prefix"`
+	RequiresAuth      bool                 `mapstructure:"requires_auth" json:"requires_auth" yaml:"requires_auth"`
+	RateLimit         RateLimitConfig      `mapstructure:"rate_limit" json:"rate_limit" yaml:"rate_limit"`
+	CircuitBreaker    CircuitBreakerConfig `mapstructure:"circuit_breaker" json:"circuit_breaker" yaml:"circuit_breaker"`
+	Timeout           time.Duration        `mapstructure:"timeout" json:"timeout" yaml:"timeout"`
+	LBStrategy        string               `mapstructure:"lb_strategy" json:"lb_strategy" yaml:"lb_strategy"`
+	RequestsPerSecond int                  `mapstructure:"requests_per_second" yaml:"requests_per_second"`
+	Retry             RetryConfig          `mapstructure:"retry" json:"retry" yaml:"retry"`
+	Upstreams         []UpstreamConfig     `mapstructure:"upstreams" json:"upstreams" yaml:"upstreams"`
 }
 
 type RateLimitConfig struct {
