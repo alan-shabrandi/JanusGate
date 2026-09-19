@@ -20,7 +20,7 @@ func main() {
 
 			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				fmt.Fprintf(w, `{"message": "Response from upstream", "port": "%s", "path": "%s"}`+"\n", p, r.URL.Path)
+				_, _ = fmt.Fprintf(w, `{"message": "Response from upstream", "port": "%s", "path": "%s"}`+"\n", p, r.URL.Path)
 			})
 
 			log.Printf("Starting mock upstream server on :%s\n", p)
