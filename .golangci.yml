@@ -12,10 +12,6 @@ linters:
     - staticcheck
     - unused
     - bodyclose
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-
-issues:
-  exclude-use-default: false
+  settings:
+    errcheck:
+      check-type-assertions: true
