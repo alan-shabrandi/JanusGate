@@ -111,3 +111,5 @@ EOF
 .repomixignore
 repomix-output.md
 repomix.config.json
+
+structure.txt
