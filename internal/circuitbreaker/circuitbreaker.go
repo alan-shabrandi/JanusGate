@@ -72,6 +72,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	var httpResp *http.Response
 
 	_, err := t.cb.Execute(func() (interface{}, error) {
+		//nolint:bodyclose // False positive: The response body must remain open for the ReverseProxy to read and close.
 		resp, err := t.next.RoundTrip(req)
 		if err != nil {
 			return nil, err
