@@ -5,7 +5,6 @@ K6 ?= k6
 GATEWAY_URL ?= http://localhost:8080
 
 help:
-	@echo "دستورات دسترس‌پذیر در JanusGate:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 build:
