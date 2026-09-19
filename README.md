@@ -1,5 +1,11 @@
 # JanusGate
 
+![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)
+![License](https://img.shields.io/badge/License-MIT-blue.svg)
+![Coverage](https://img.shields.io/badge/Coverage->85%25-brightgreen.svg)
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker)
+![CI/CD](https://github.com/alan-shabrandi/JanusGate/actions/workflows/ci.yml/badge.svg)
+
 > High-performance, cloud-native API gateway and reverse proxy written in Go.
 
 JanusGate is a lightweight, distributed API gateway and reverse proxy written in Go. It sits in front of microservices and handles routing, security, traffic control, resilience, and observability.
@@ -21,7 +27,7 @@ JanusGate is a lightweight, distributed API gateway and reverse proxy written in
 ```mermaid
 graph TD
     %% Client & External Traffic
-    Client[External Client / User] -->|HTTP/HTTPS Request| Gateway[JanusGate Entry point :9090]
+    Client[External Client / User] -->|HTTP/HTTPS Request| Gateway[JanusGate Entry point: 8080]
 
     subgraph JanusGate ["JanusGate API Gateway Subsystem"]
         Gateway --> MW_Recovery[1. Recovery Middleware]
@@ -41,7 +47,7 @@ graph TD
 
     subgraph Infrastructure ["Infrastructure & Storage"]
         Redis[(Redis Cache / Rate Limit Storage :6379)]
-        Prometheus[Prometheus Metrics :9091]
+        Prometheus[Prometheus Metrics :9090]
         Jaeger[Jaeger Tracing OTLP :4317]
         Grafana[Grafana Dashboard :3000]
     end
@@ -132,11 +138,12 @@ docker compose down
 
 ## Local Endpoints
 
-| Service     | URL                     | Purpose                      |
-| ----------- | ----------------------- | ---------------------------- |
-| API Gateway | `http://localhost:8080` | Main gateway endpoint        |
-| Prometheus  | `http://localhost:9090` | Metrics and monitoring       |
-| Grafana     | `http://localhost:3000` | Dashboards and visualization |
+| Service      | URL                             | Purpose                         |
+| ------------ | ------------------------------- | ------------------------------- |
+| API Gateway  | `http://localhost:8080`         | Main gateway endpoint           |
+| Health Check | `http://localhost:8080/healthz` | Active readiness/liveness probe |
+| Prometheus   | `http://localhost:9090`         | Metrics and monitoring          |
+| Grafana      | `http://localhost:3000`         | Dashboards and visualization    |
 
 > **Note:** Update these ports if your `docker-compose.yaml` exposes different values.
 
@@ -187,7 +194,7 @@ IP Hash
 
 ## Performance
 
-Performance is an important part of the design.
+JanusGate is built from the ground up for high throughput and low latency, making it suitable for high-scale environments.
 
 The following figures are **example benchmark results** and should be replaced with measurements from your own environment before publishing them as official project claims.
 
@@ -196,15 +203,15 @@ The following figures are **example benchmark results** and should be replaced w
 | Throughput       |   ~15,000 req/sec |
 | Average Latency  |            < 2 ms |
 | P99 Latency      |            < 5 ms |
-| Memory Footprint | ~25 MB under load |
+| Memory Footprint | ~50 MB under load |
 
 ### Benchmark Environment
 
 ```text
 Load Generator: k6
-Upstream: Mock service
-Machine: [Specify CPU / RAM / OS]
-Gateway Version: [Specify version]
+Upstream: Mock service (Local Go HTTP servers)
+Machine: Windows 11 Pro, 12th Gen Intel Core i5-12400F (2.50 GHz), 32GB RAM
+Gateway Version: v1.0.0-dev
 ```
 
 Run benchmarks locally with:
@@ -362,10 +369,16 @@ JanusGate centralizes common API security concerns at the gateway layer.
 
 The project uses a multi-stage Docker build to produce a small production image.
 
-Build the image:
+Run the pre-built image directly from Docker Hub:
 
 ```bash
-docker build -t JanusGate:latest .
+docker run --rm -p 8080:8080 alanshabrandi/janusgate:latest
+```
+
+Or build the image locally:
+
+```bash
+docker build -t janusgate:latest .
 ```
 
 Run it:
@@ -379,6 +392,41 @@ For local development with dependencies and observability services, use:
 ```bash
 docker compose up -d
 ```
+
+## Kubernetes Deployment
+
+JanusGate includes out-of-the-box Kubernetes manifests for quick cluster deployment.
+
+1. Apply the configuration, deployment, and service:
+
+```bash
+kubectl apply -f deployments/k8s/
+```
+
+2. Wait for the pods to become ready:
+
+```bash
+kubectl get pods -w
+```
+
+3. Forward the port to access the gateway locally:
+
+```bash
+kubectl port-forward service/janusgate-service 8080:8080
+```
+
+## CI/CD Pipeline
+
+JanusGate uses **GitHub Actions** for continuous integration and delivery.
+
+Every push and pull request triggers an automated workflow that:
+
+1. Runs code linters (`golangci-lint`).
+2. Executes the unit test suite and checks code coverage.
+3. Builds the multi-stage Docker image.
+4. Pushes the latest tagged image to Docker Hub (`alanshabrandi/janusgate`).
+
+This ensures that the `main` branch is always stable and ready for Kubernetes deployment.
 
 ## Configuration Hot Reload
 
@@ -436,7 +484,7 @@ Potential future improvements:
 - [ ] WebSocket and gRPC optimizations
 - [ ] Distributed configuration storage
 - [ ] Advanced authentication providers
-- [ ] Kubernetes-native deployment manifests
+- [x] Kubernetes-native deployment manifests
 - [ ] Gateway-level caching
 - [ ] More detailed dashboards and alerts
 
@@ -454,6 +502,15 @@ docs/
 ```
 
 Architecture diagrams and operational guides should be kept close to the implementation and updated alongside major changes.
+
+## Author
+
+**Alan**
+
+- LinkedIn: [alan-shabrandi](https://linkedin.com/in/alan-shabrandi)
+- GitHub: [@alan-shabrandi](https://github.com/alan-shabrandi)
+
+If you have any questions or want to discuss backend engineering, system design, or Go, feel free to reach out!
 
 ## License
 
