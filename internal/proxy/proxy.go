@@ -44,14 +44,12 @@ func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.Re
 		return nil, fmt.Errorf("invalid target URL: %w", err)
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
-
-	proxy.Director = nil
-
-	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
-		pr.SetXForwarded()
-		pr.SetURL(target)
-		pr.Out.Host = target.Host
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetXForwarded()
+			pr.SetURL(target)
+			pr.Out.Host = target.Host
+		},
 	}
 
 	var baseTransport http.RoundTripper = &http.Transport{
