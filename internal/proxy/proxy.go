@@ -46,18 +46,12 @@ func NewProxy(targetURL string, cbCfg *circuitbreaker.Config, retryCfg config.Re
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
-	if proxy.Rewrite != nil {
-		originalRewrite := proxy.Rewrite
-		proxy.Rewrite = func(pr *httputil.ProxyRequest) {
-			originalRewrite(pr)
-			pr.Out.Host = target.Host
-		}
-	} else {
-		proxy.Rewrite = func(pr *httputil.ProxyRequest) {
-			pr.SetXForwarded()
-			pr.SetURL(target)
-			pr.Out.Host = target.Host
-		}
+	proxy.Director = nil
+
+	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
+		pr.SetXForwarded()
+		pr.SetURL(target)
+		pr.Out.Host = target.Host
 	}
 
 	var baseTransport http.RoundTripper = &http.Transport{
