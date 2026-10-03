@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -20,10 +21,10 @@ type Claims struct {
 }
 
 type TokenValidator interface {
-	ValidateToken(tokenStr string) (Claims, error)
+	ValidateToken(ctx context.Context, tokenStr string) (Claims, error)
 }
 
 type TokenManager interface {
 	TokenValidator
-	GenerateToken(userID string, username string, roles []string, duration time.Duration) (string, error)
+	GenerateToken(ctx context.Context, userID string, username string, roles []string, duration time.Duration) (string, error)
 }

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -31,11 +32,12 @@ func NewJWTManager(secretKey, issuer string) (*JWTManager, error) {
 			jwt.WithValidMethods([]string{"HS256"}),
 			jwt.WithIssuer(issuer),
 			jwt.WithExpirationRequired(),
+			jwt.WithLeeway(5*time.Second),
 		),
 	}, nil
 }
 
-func (m *JWTManager) GenerateToken(userID, username string, roles []string, duration time.Duration) (string, error) {
+func (m *JWTManager) GenerateToken(ctx context.Context, userID, username string, roles []string, duration time.Duration) (string, error) {
 	now := time.Now().UTC()
 	claims := Claims{
 		UserID:   userID,
@@ -58,20 +60,23 @@ func (m *JWTManager) GenerateToken(userID, username string, roles []string, dura
 	return signedToken, nil
 }
 
-func (m *JWTManager) ValidateToken(tokenStr string) (Claims, error) {
+func (m *JWTManager) ValidateToken(ctx context.Context, tokenStr string) (Claims, error) {
 	var claims Claims
 
 	token, err := m.parser.ParseWithClaims(tokenStr, &claims, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
 		return m.secretKey, nil
 	})
 
 	if err != nil {
-		slog.Debug("JWT validation failed", "error", err.Error())
+		slog.DebugContext(ctx, "JWT validation failed", "error", err.Error())
 		return Claims{}, ErrInvalidToken
 	}
 
 	if !token.Valid {
-		slog.Debug("JWT parsed but explicitly marked invalid")
+		slog.DebugContext(ctx, "JWT parsed but explicitly marked invalid")
 		return Claims{}, ErrInvalidToken
 	}
 
