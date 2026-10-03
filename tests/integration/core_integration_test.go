@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-
 	"janusgate/internal/auth"
 	"janusgate/internal/config"
 	"janusgate/internal/middleware"
@@ -17,6 +15,23 @@ import (
 	"janusgate/internal/router"
 	"janusgate/internal/upstream"
 )
+
+func doRequest(t *testing.T, req *http.Request) (*http.Response, string) {
+	t.Helper()
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HTTP request failed: %v", err)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Failed to read response body: %v", err)
+	}
+	defer resp.Body.Close()
+
+	return resp, string(bodyBytes)
+}
 
 func TestCoreIntegration(t *testing.T) {
 	env := SetupTestEnv(t)
@@ -85,20 +100,14 @@ func TestCoreIntegration(t *testing.T) {
 	gwServer := httptest.NewServer(handler)
 	defer gwServer.Close()
 
-	validToken, err := jwtMgr.GenerateToken("user-123", "admin", []string{"admin"}, 1*time.Hour)
+	validToken, err := jwtMgr.GenerateToken(context.Background(), "user-123", "admin", []string{"admin"}, 1*time.Hour)
 	if err != nil {
 		t.Fatalf("Failed to generate test JWT token: %v", err)
 	}
 
 	t.Run("Auth - Request without token should return 401", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/users/profile", nil)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("HTTP request failed: %v", err)
-		}
-		defer func() {
-			_ = resp.Body.Close()
-		}()
+		resp, _ := doRequest(t, req)
 
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("Expected 401 Unauthorized, got %d", resp.StatusCode)
@@ -107,13 +116,7 @@ func TestCoreIntegration(t *testing.T) {
 
 	t.Run("Auth - Public route without token should return 200", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/public/ping", nil)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("HTTP request failed: %v", err)
-		}
-		defer func() {
-			_ = resp.Body.Close()
-		}()
+		resp, _ := doRequest(t, req)
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected 200 OK, got %d", resp.StatusCode)
@@ -124,23 +127,11 @@ func TestCoreIntegration(t *testing.T) {
 		req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/users/profile", nil)
 		req.Header.Set("Authorization", "Bearer "+validToken)
 
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("HTTP request failed: %v", err)
-		}
-		defer func() {
-			_ = resp.Body.Close()
-		}()
+		resp, receivedPath := doRequest(t, req)
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("Expected 200 OK, got %d", resp.StatusCode)
 		}
-
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatalf("Failed to read response body: %v", err)
-		}
-		receivedPath := string(bodyBytes)
 
 		if receivedPath != "/profile" {
 			t.Errorf("Expected upstream to receive path '/profile', got '%s'", receivedPath)
@@ -148,19 +139,12 @@ func TestCoreIntegration(t *testing.T) {
 	})
 
 	t.Run("RateLimit - Exceeding limit should return 429", func(t *testing.T) {
-		rdb := redis.NewClient(&redis.Options{
-			Addr: env.RedisAddr,
-		})
-		_ = rdb.FlushDB(context.Background()).Err()
-		_ = rdb.Close()
+		uniqueIP := "192.168.100.100"
 
 		for i := 0; i < 5; i++ {
 			req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/public/status", nil)
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("Request %d failed: %v", i+1, err)
-			}
-			_ = resp.Body.Close()
+			req.Header.Set("X-Forwarded-For", uniqueIP)
+			resp, _ := doRequest(t, req)
 
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("Request %d expected 200 OK, got %d", i+1, resp.StatusCode)
@@ -168,13 +152,8 @@ func TestCoreIntegration(t *testing.T) {
 		}
 
 		req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/public/status", nil)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("6th request failed: %v", err)
-		}
-		defer func() {
-			_ = resp.Body.Close()
-		}()
+		req.Header.Set("X-Forwarded-For", uniqueIP)
+		resp, _ := doRequest(t, req)
 
 		if resp.StatusCode != http.StatusTooManyRequests {
 			t.Errorf("Expected 429 Too Many Requests, got %d", resp.StatusCode)
