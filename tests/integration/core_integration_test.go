@@ -16,23 +16,23 @@ import (
 	"janusgate/internal/upstream"
 )
 
-func doRequest(t *testing.T, req *http.Request) (*http.Response, string) {
+func doRequest(t *testing.T, req *http.Request) (int, string) {
 	t.Helper()
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("HTTP request failed: %v", err)
 	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("Failed to read response body: %v", err)
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
 
-	return resp, string(bodyBytes)
+	return resp.StatusCode, string(bodyBytes)
 }
 
 func TestCoreIntegration(t *testing.T) {
@@ -109,19 +109,19 @@ func TestCoreIntegration(t *testing.T) {
 
 	t.Run("Auth - Request without token should return 401", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/users/profile", nil)
-		resp, _ := doRequest(t, req)
+		statusCode, _ := doRequest(t, req)
 
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Errorf("Expected 401 Unauthorized, got %d", resp.StatusCode)
+		if statusCode != http.StatusUnauthorized {
+			t.Errorf("Expected 401 Unauthorized, got %d", statusCode)
 		}
 	})
 
 	t.Run("Auth - Public route without token should return 200", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/public/ping", nil)
-		resp, _ := doRequest(t, req)
+		statusCode, _ := doRequest(t, req)
 
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("Expected 200 OK, got %d", resp.StatusCode)
+		if statusCode != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", statusCode)
 		}
 	})
 
@@ -129,10 +129,10 @@ func TestCoreIntegration(t *testing.T) {
 		req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/users/profile", nil)
 		req.Header.Set("Authorization", "Bearer "+validToken)
 
-		resp, receivedPath := doRequest(t, req)
+		statusCode, receivedPath := doRequest(t, req)
 
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("Expected 200 OK, got %d", resp.StatusCode)
+		if statusCode != http.StatusOK {
+			t.Errorf("Expected 200 OK, got %d", statusCode)
 		}
 
 		if receivedPath != "/profile" {
@@ -146,19 +146,19 @@ func TestCoreIntegration(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/public/status", nil)
 			req.Header.Set("X-Forwarded-For", uniqueIP)
-			resp, _ := doRequest(t, req)
+			statusCode, _ := doRequest(t, req)
 
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("Request %d expected 200 OK, got %d", i+1, resp.StatusCode)
+			if statusCode != http.StatusOK {
+				t.Fatalf("Request %d expected 200 OK, got %d", i+1, statusCode)
 			}
 		}
 
 		req, _ := http.NewRequest("GET", gwServer.URL+"/api/v1/public/status", nil)
 		req.Header.Set("X-Forwarded-For", uniqueIP)
-		resp, _ := doRequest(t, req)
+		statusCode, _ := doRequest(t, req)
 
-		if resp.StatusCode != http.StatusTooManyRequests {
-			t.Errorf("Expected 429 Too Many Requests, got %d", resp.StatusCode)
+		if statusCode != http.StatusTooManyRequests {
+			t.Errorf("Expected 429 Too Many Requests, got %d", statusCode)
 		}
 	})
 }
