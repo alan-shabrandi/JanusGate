@@ -152,5 +152,5 @@ func (bw *BackgroundWatcher) Stop() error {
 	}
 
 	bw.stopDebounceTimer()
-	return bw.watcher.Close()
+	return nil
 }
