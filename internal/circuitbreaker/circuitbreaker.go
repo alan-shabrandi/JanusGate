@@ -1,6 +1,7 @@
 package circuitbreaker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +22,21 @@ type Config struct {
 	FailureRatioToTrip float64
 }
 
+func (c *Config) setDefaults() {
+	if c.Interval == 0 {
+		c.Interval = 60 * time.Second
+	}
+	if c.Timeout == 0 {
+		c.Timeout = 30 * time.Second
+	}
+	if c.MinRequestsToTrip == 0 {
+		c.MinRequestsToTrip = 10
+	}
+	if c.FailureRatioToTrip == 0 {
+		c.FailureRatioToTrip = 0.5
+	}
+}
+
 type Transport struct {
 	cb   *gobreaker.CircuitBreaker
 	next http.RoundTripper
@@ -31,9 +47,7 @@ func NewTransport(cfg Config, next http.RoundTripper) *Transport {
 		next = http.DefaultTransport
 	}
 
-	if cfg.Interval == 0 {
-		cfg.Interval = 60 * time.Second
-	}
+	cfg.setDefaults()
 
 	st := gobreaker.Settings{
 		Name:        cfg.Name,
@@ -50,7 +64,13 @@ func NewTransport(cfg Config, next http.RoundTripper) *Transport {
 		},
 
 		IsSuccessful: func(err error) bool {
-			return err == nil
+			if err == nil {
+				return true
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return true
+			}
+			return false
 		},
 
 		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
