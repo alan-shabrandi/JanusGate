@@ -74,39 +74,9 @@ type RetryConfig struct {
 }
 
 func Load(configPath string) (*Config, *Manager, error) {
-	v := viper.New()
-
-	if configPath != "" {
-		v.SetConfigFile(configPath)
-	} else {
-		v.SetConfigName("config")
-		v.SetConfigType("yaml")
-		v.AddConfigPath(".")
-		v.AddConfigPath("./configs")
-	}
-
-	v.SetEnvPrefix("JANUS")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
-
-	setStaticDefaults(v)
-
-	if err := v.ReadInConfig(); err != nil {
-		var configFileNotFoundError viper.ConfigFileNotFoundError
-		if !errors.As(err, &configFileNotFoundError) {
-			return nil, nil, fmt.Errorf("error reading config file: %w", err)
-		}
-	}
-
-	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
-		return nil, nil, fmt.Errorf("unable to decode config into struct: %w", err)
-	}
-
-	applyDynamicDefaults(&cfg)
-
-	if err := validateConfig(&cfg); err != nil {
-		return nil, nil, fmt.Errorf("invalid configuration: %w", err)
+	cfg, v, err := parseConfig(configPath)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	mgr := &Manager{
@@ -114,7 +84,7 @@ func Load(configPath string) (*Config, *Manager, error) {
 		configPath: configPath,
 	}
 
-	return &cfg, mgr, nil
+	return cfg, mgr, nil
 }
 
 func setStaticDefaults(v *viper.Viper) {
@@ -203,4 +173,43 @@ func validateConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+
+func parseConfig(configPath string) (*Config, *viper.Viper, error) {
+	v := viper.New()
+
+	if configPath != "" {
+		v.SetConfigFile(configPath)
+	} else {
+		v.SetConfigName("config")
+		v.SetConfigType("yaml")
+		v.AddConfigPath(".")
+		v.AddConfigPath("./configs")
+	}
+
+	v.SetEnvPrefix("JANUS")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	setStaticDefaults(v)
+
+	if err := v.ReadInConfig(); err != nil {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
+			return nil, nil, fmt.Errorf("error reading config file: %w", err)
+		}
+	}
+
+	var cfg Config
+	if err := v.Unmarshal(&cfg); err != nil {
+		return nil, nil, fmt.Errorf("unable to decode config into struct: %w", err)
+	}
+
+	applyDynamicDefaults(&cfg)
+
+	if err := validateConfig(&cfg); err != nil {
+		return nil, nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	return &cfg, v, nil
 }
