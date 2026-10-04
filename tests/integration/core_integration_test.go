@@ -28,7 +28,9 @@ func doRequest(t *testing.T, req *http.Request) (*http.Response, string) {
 	if err != nil {
 		t.Fatalf("Failed to read response body: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	return resp, string(bodyBytes)
 }
